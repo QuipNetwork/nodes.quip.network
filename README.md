@@ -49,7 +49,7 @@ docker compose --profile cuda up -d
 docker compose --profile qpu up -d
 ```
 
-Watchtower polls Docker Hub every 5 minutes and automatically restarts the node when a new image is pushed.
+Watchtower polls the registry every 5 minutes and automatically restarts the node when a new image is pushed.
 
 ## Updating Configuration
 
@@ -85,5 +85,5 @@ docker compose --profile qpu up -d --force-recreate
 | `data/config.cpu.toml` | CPU mode template |
 | `data/config.cuda.toml` | CUDA GPU mode template |
 | `data/config.qpu.toml` | QPU (D-Wave) mode template |
-| `.env` | D-Wave API token (not checked in, QPU only) |
+| `.env` | CERT_EMAIL + DWAVE_API_KEY (not checked in) |
 | `env.example` | Template for `.env` |
