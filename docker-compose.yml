@@ -1,6 +1,7 @@
 services:
   cpu:
     image: registry.gitlab.com/piqued/quip-protocol/quip-network-node-cpu:latest
+    pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
     profiles:
@@ -19,6 +20,7 @@ services:
 
   cuda:
     image: registry.gitlab.com/piqued/quip-protocol/quip-network-node-cuda:latest
+    pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
     profiles:
@@ -44,6 +46,7 @@ services:
 
   qpu:
     image: registry.gitlab.com/piqued/quip-protocol/quip-network-node-cpu:latest
+    pull_policy: always
     container_name: quip-qpu
     restart: unless-stopped
     profiles:
