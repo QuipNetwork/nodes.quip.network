@@ -1,12 +1,12 @@
-# DigitalOcean Droplet Setup with Docker & Watchtower
+# DigitalOcean Droplet Setup for Quip Network Nodes
 
 ## Overview
 
 This guide sets up a DigitalOcean Droplet that:
 
 1. Points your DNS at a static IP
-2. Manages configuration, data volumes, and environment variables via docker-compose
-3. Auto-detects and deploys the latest Docker image using Watchtower
+2. Runs a Quip Network node via Docker Compose
+3. Auto-updates the node image using Watchtower
 
 ---
 
@@ -23,7 +23,7 @@ This guide sets up a DigitalOcean Droplet that:
 ### Via the DigitalOcean CLI
 
 ```bash
-doctl compute droplet create my-app-server \
+doctl compute droplet create my-quip-node \
   --region nyc1 \
   --size s-1vcpu-2gb \
   --image ubuntu-24-04-x64 \
@@ -39,15 +39,9 @@ Note the **IPv4 address** from the output — you'll need it for DNS.
 
 At your DNS provider, create an **A record** pointing to the Droplet's IP:
 
-| Type | Name            | Value            | TTL  |
-|------|-----------------|------------------|------|
-| A    | app.example.com | `<DROPLET_IP>`   | 300  |
-
-If you want a root domain, also add:
-
-| Type | Name        | Value            | TTL  |
-|------|-------------|------------------|------|
-| A    | example.com | `<DROPLET_IP>`   | 300  |
+| Type | Name                 | Value          | TTL |
+|------|----------------------|----------------|-----|
+| A    | mynode.example.com   | `<DROPLET_IP>` | 300 |
 
 DNS propagation typically takes a few minutes to a few hours.
 
@@ -83,8 +77,10 @@ rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy
 
 ```bash
 ufw allow OpenSSH
-ufw allow 80/tcp
-ufw allow 443/tcp
+ufw allow 20049/udp    # QUIC peer-to-peer
+ufw allow 20049/tcp    # QUIC peer-to-peer
+ufw allow 80/tcp       # Certbot HTTP-01 ACME challenge
+ufw allow 443/tcp      # HTTPS REST API
 ufw enable
 ```
 
@@ -106,142 +102,109 @@ Log out and back in as `deploy` for the group change to take effect.
 
 ---
 
-## 4. Project Structure
+## 4. Deploy the Node
 
-Create a clean directory layout on the server:
-
-```
-/home/deploy/app/
-├── docker-compose.yml      # Service definitions
-├── .env                    # Environment variables (gitignored, secrets live here)
-├── config/                 # Mounted config files
-│   └── app.conf            # Your app's config (nginx, app settings, etc.)
-└── data/                   # Persistent data volume
-```
+### 4.1 Clone the deployment repo
 
 ```bash
-mkdir -p ~/app/config ~/app/data
+git clone https://gitlab.com/piqued/nodes.quip.network.git ~/app
 cd ~/app
 ```
 
----
-
-## 5. Docker Compose Configuration
-
-### 5.1 Environment Variables
-
-Create `~/app/.env`:
+### 4.2 Choose a mode and copy the config template
 
 ```bash
-# App settings
-APP_ENV=production
-APP_PORT=8080
-DATABASE_URL=postgres://user:password@db-host:5432/mydb
-SECRET_KEY=change-me-to-something-random
+# CPU mining
+cp data/config.cpu.toml data/config.toml
 
-# Registry credentials (if using a private registry)
-REGISTRY_USER=myuser
-REGISTRY_PASSWORD=mytoken
+# CUDA GPU mining (requires NVIDIA GPU + drivers)
+cp data/config.cuda.toml data/config.toml
+
+# QPU mining (D-Wave)
+cp data/config.qpu.toml data/config.toml
 ```
 
-Lock down permissions:
+### 4.3 Configure the node
+
+Edit `data/config.toml`:
+
+```toml
+[global]
+node_name = "my-node"
+listen = "::"                               # Dual-stack IPv4+IPv6
+port = 20049
+public_host = "mynode.example.com"          # Your DNS name (enables certbot TLS)
+secret = "CHANGE_ME"                        # Unique value for node identity
+
+peer = [
+    "qpu-1.nodes.quip.network:20049",
+    "cpu-1.quip.carback.us:20049",
+    "gpu-1.quip.carback.us:20049",
+    "gpu-2.quip.carback.us:20050",
+]
+
+verify_tls = false
+
+# TLS certificates (injected by certbot in entrypoint.sh)
+# tls_cert_file = "/data/certs/private/fullchain.pem"
+# tls_key_file = "/data/certs/private/privkey.pem"
+
+tofu = true
+trust_db = "/data/trust.db"
+
+# REST API (-1 = disabled)
+rest_host = "0.0.0.0"
+rest_port = -1
+rest_insecure_port = -1
+```
+
+### 4.4 Configure environment variables
 
 ```bash
-chmod 600 ~/app/.env
+cp env.example .env
+chmod 600 .env
 ```
 
-### 5.2 docker-compose.yml
+Edit `.env`:
 
-Create `~/app/docker-compose.yml`:
+```bash
+# TLS: enables automatic Let's Encrypt certificates when public_host is a DNS name
+CERT_EMAIL=admin@example.com
 
-```yaml
-services:
-  # ---- Your Application ----
-  app:
-    image: myregistry/myapp:latest      # <-- Change to your image
-    container_name: myapp
-    restart: unless-stopped
-    ports:
-      - "80:${APP_PORT:-8080}"
-    env_file:
-      - .env
-    volumes:
-      - ./config:/app/config:ro          # Config files (read-only)
-      - ./data:/app/data                 # Persistent data (read-write)
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${APP_PORT:-8080}/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  # ---- Watchtower (auto-updater) ----
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      # If using a private registry, mount Docker credentials:
-      # - /home/deploy/.docker/config.json:/config.json:ro
-    environment:
-      # Poll every 5 minutes (300 seconds)
-      - WATCHTOWER_POLL_INTERVAL=300
-      # Only update containers with the watchtower label
-      - WATCHTOWER_LABEL_ENABLE=true
-      # Remove old images after update
-      - WATCHTOWER_CLEANUP=true
-      # Optional: send notifications on update
-      # - WATCHTOWER_NOTIFICATIONS=slack
-      # - WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL=https://hooks.slack.com/services/xxx
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+# D-Wave API token (QPU only)
+DWAVE_API_KEY=
 ```
 
-**Key design decisions in this file:**
+### 4.5 Start the node
 
-- `WATCHTOWER_LABEL_ENABLE=true` ensures Watchtower only touches containers you explicitly label, so it won't interfere with anything else you run on the box.
-- Config is mounted read-only (`:ro`) so the app can't accidentally modify its own config.
-- Data is mounted read-write for persistence across container restarts and updates.
-- The healthcheck gives Watchtower and Docker a way to know if the new image is actually working.
+```bash
+# CPU node
+docker compose --profile cpu up -d
+
+# CUDA GPU node
+docker compose --profile cuda up -d
+
+# QPU node
+docker compose --profile qpu up -d
+```
+
+Watchtower polls the registry every 5 minutes and automatically restarts the node when a new image is pushed.
 
 ---
 
-## 6. Private Registry Authentication (If Needed)
+## 5. Registry Authentication
 
-If your image is in a private registry, log in so Watchtower can pull:
+The Quip node images are hosted on GitLab Container Registry. If the registry requires authentication:
 
 ```bash
-docker login ghcr.io          # or docker.io, your-registry.com, etc.
+docker login registry.gitlab.com
 ```
 
-This creates `~/.docker/config.json`. Uncomment the volume mount in the Watchtower service above to share these credentials.
+This creates `~/.docker/config.json`. Watchtower uses the Docker socket and inherits these credentials automatically.
 
 ---
 
-## 7. Start Everything
-
-```bash
-cd ~/app
-docker compose up -d
-```
-
-Verify:
-
-```bash
-# Check containers are running
-docker compose ps
-
-# Check logs
-docker compose logs -f app
-docker compose logs -f watchtower
-```
-
----
-
-## 8. TLS Certificates
+## 6. TLS Certificates
 
 The Quip node image includes built-in certbot support. TLS activates automatically when:
 
@@ -250,69 +213,41 @@ The Quip node image includes built-in certbot support. TLS activates automatical
 
 The entrypoint obtains a Let's Encrypt certificate on startup and installs a daily cron job for renewal. Certificates are stored in `/data/certs/private/`.
 
-```bash
-# In ~/app/.env, add:
-CERT_EMAIL=admin@example.com
-```
-
-Port 80 must be reachable from the internet for the HTTP-01 ACME challenge (already open from the firewall setup in step 3.3).
+Port 80 must be reachable from the internet for the HTTP-01 ACME challenge (already open from step 3.3).
 
 For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanced options, see [TLS.md](https://gitlab.com/piqued/quip-protocol/-/blob/main/docker/TLS.md).
 
 ---
 
-## 9. Deploying Updates
+## 7. Maintenance
 
-The workflow is now:
-
-1. **Build and push** your image in CI (GitHub Actions, GitLab CI, etc.):
-   ```bash
-   docker build -t myregistry/myapp:latest .
-   docker push myregistry/myapp:latest
-   ```
-2. **Watchtower detects** the new digest within the poll interval (default 5 min).
-3. **Watchtower pulls** the new image, stops the old container, starts a new one with the same config.
-4. **Healthcheck confirms** the new container is serving traffic.
-
-### Manual Deploy (Skip the Wait)
-
-If you don't want to wait for the poll interval:
-
-```bash
-cd ~/app
-docker compose pull app
-docker compose up -d app
-```
+| Task | Command |
+|------|---------|
+| View node logs | `docker compose logs -f cpu` (or `cuda`, `qpu`) |
+| View watchtower logs | `docker compose logs -f watchtower` |
+| Restart after config change | `docker compose restart cpu` |
+| Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
+| Force pull & redeploy | `docker compose pull cpu && docker compose up -d cpu` |
+| Stop everything | `docker compose --profile cpu down` |
+| Stop & remove volumes | `docker compose down -v` (destroys data) |
+| Update server packages | `sudo apt update && sudo apt upgrade -y` |
+| Check disk usage | `df -h && docker system df` |
+| Prune unused Docker objects | `docker system prune -af` |
+| Edit config | `nano data/config.toml && docker compose restart cpu` |
+| Edit env vars | `nano .env && docker compose --profile cpu up -d --force-recreate` |
+| View TLS certificates | `docker exec quip-cpu certbot certificates --config-dir /data/certs/certbot-config` |
+| Force TLS renewal | `docker exec quip-cpu /data/certs/certbot mynode.example.com` |
+| Check cron | `docker exec quip-cpu busybox crontab -l` |
 
 ---
 
-## 10. Maintenance Cheat Sheet
-
-| Task                        | Command                                        |
-|-----------------------------|-------------------------------------------------|
-| View running containers     | `docker compose ps`                            |
-| View app logs               | `docker compose logs -f app`                   |
-| View watchtower logs        | `docker compose logs -f watchtower`            |
-| Restart app                 | `docker compose restart app`                   |
-| Force pull & redeploy       | `docker compose pull app && docker compose up -d app` |
-| Stop everything             | `docker compose down`                          |
-| Stop & remove volumes       | `docker compose down -v` ⚠️ destroys data      |
-| Update server packages      | `sudo apt update && sudo apt upgrade -y`       |
-| Check disk usage            | `df -h && docker system df`                    |
-| Prune unused Docker objects | `docker system prune -af`                      |
-| Edit env vars               | `nano ~/app/.env && docker compose up -d`      |
-| Edit config                 | `nano ~/app/config/app.conf && docker compose restart app` |
-
----
-
-## 11. Optional Enhancements
+## 8. Optional Enhancements
 
 ### Watchtower Notifications
 
-Get a Slack/email alert whenever Watchtower deploys:
+Get a Slack alert whenever Watchtower deploys a new image. Add to the watchtower `environment` section in `docker-compose.yml`:
 
 ```yaml
-# In watchtower environment:
 - WATCHTOWER_NOTIFICATIONS=slack
 - WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL=https://hooks.slack.com/services/T00/B00/xxxx
 ```
@@ -322,16 +257,14 @@ Get a Slack/email alert whenever Watchtower deploys:
 Cron job to back up the data directory to DigitalOcean Spaces (S3-compatible):
 
 ```bash
-# Install s3cmd or use rclone, then:
 crontab -e
 # Add:
-0 3 * * * tar czf /tmp/app-backup-$(date +\%F).tar.gz /home/deploy/app/data && \
-  s3cmd put /tmp/app-backup-*.tar.gz s3://my-backups/ && \
-  rm /tmp/app-backup-*.tar.gz
+0 3 * * * tar czf /tmp/quip-backup-$(date +\%F).tar.gz /home/deploy/app/data && \
+  s3cmd put /tmp/quip-backup-*.tar.gz s3://my-backups/ && \
+  rm /tmp/quip-backup-*.tar.gz
 ```
 
 ### Monitoring
 
 - **DigitalOcean Monitoring:** Free, built-in — enable it on the Droplet dashboard for CPU/memory/disk alerts.
-- **UptimeRobot or Healthchecks.io:** Free external uptime monitoring — point it at `https://app.example.com/health`.
 - **Container-level:** Use `docker stats` or add cAdvisor to the compose stack for per-container metrics.
