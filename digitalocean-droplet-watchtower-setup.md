@@ -86,19 +86,33 @@ ufw enable
 
 ### 3.4 Install Docker & Docker Compose
 
+Use Docker's official install script — this installs Docker Engine, CLI, and the Compose plugin (v2) together. Do **not** use `apt install docker.io` or `apt install docker-compose`, which are outdated Debian packages that lack Compose v2 and `pull_policy` support.
+
 ```bash
-# Install Docker
+# Remove any old Debian-packaged Docker (if present)
+sudo apt remove -y docker.io docker-compose 2>/dev/null
+
+# Install Docker from the official repository
 curl -fsSL https://get.docker.com | sh
 
 # Add your user to the docker group (avoids needing sudo for docker commands)
-usermod -aG docker deploy
+sudo usermod -aG docker deploy
 
-# Verify
+# Verify both Docker and Compose v2 are installed
 docker --version
-docker compose version
+docker compose version   # Must show "Docker Compose version v2.x.x"
 ```
 
 Log out and back in as `deploy` for the group change to take effect.
+
+If `docker compose version` fails, install the plugin manually:
+
+```bash
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m) \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+```
 
 ---
 
