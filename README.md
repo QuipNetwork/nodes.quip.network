@@ -21,16 +21,20 @@ cp data/config.qpu.toml data/config.toml
 
 Edit `data/config.toml`:
 - Set `secret` to a unique value for your node's identity
-- Set `public_host` to your server's public hostname/IP
+- Set `public_host` to your server's public hostname (DNS name, not IP)
 - Adjust `node_name` and `peer` list as needed
 - For QPU: solver and daily budget are pre-configured for Advantage2
 
-### 3. Configure credentials (QPU only)
+### 3. Configure credentials
 
 ```bash
 cp env.example .env
-# Edit .env and set your D-Wave API token
+# Edit .env:
+#   CERT_EMAIL  — set to enable automatic Let's Encrypt TLS (requires public_host as DNS name + port 80 open)
+#   DWAVE_API_KEY — D-Wave API token (QPU only)
 ```
+
+TLS certificates are managed automatically by certbot inside the container. When `CERT_EMAIL` is set and `public_host` is a DNS name, the entrypoint obtains a Let's Encrypt certificate on startup and renews daily. For DNS-01 challenges, custom ACME providers, or other advanced options, see [TLS.md](https://gitlab.com/piqued/quip-protocol/-/blob/main/docker/TLS.md).
 
 ### 4. Start
 

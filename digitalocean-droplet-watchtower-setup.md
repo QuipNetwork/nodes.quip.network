@@ -241,50 +241,23 @@ docker compose logs -f watchtower
 
 ---
 
-## 8. Add HTTPS with Let's Encrypt
+## 8. TLS Certificates
 
-For production, add a Caddy or Nginx reverse proxy with automatic TLS. Caddy is the simplest option.
+The Quip node image includes built-in certbot support. TLS activates automatically when:
 
-### Option A: Add Caddy to the Compose Stack
+1. `public_host` in `config.toml` is a DNS name (not an IP address)
+2. `CERT_EMAIL` is set in `.env`
 
-Update `docker-compose.yml` — change `app` to not bind port 80 directly, then add:
+The entrypoint obtains a Let's Encrypt certificate on startup and installs a daily cron job for renewal. Certificates are stored in `/data/certs/private/`.
 
-```yaml
-services:
-  app:
-    # Remove the ports section, Caddy will proxy to it
-    expose:
-      - "${APP_PORT:-8080}"
-    # ... rest of app config stays the same
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-volumes:
-  caddy_data:
-  caddy_config:
+```bash
+# In ~/app/.env, add:
+CERT_EMAIL=admin@example.com
 ```
 
-Create `~/app/config/Caddyfile`:
+Port 80 must be reachable from the internet for the HTTP-01 ACME challenge (already open from the firewall setup in step 3.3).
 
-```
-app.example.com {
-    reverse_proxy app:8080
-}
-```
-
-That's it — Caddy handles certificate provisioning and renewal automatically.
+For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanced options, see [TLS.md](https://gitlab.com/piqued/quip-protocol/-/blob/main/docker/TLS.md).
 
 ---
 
