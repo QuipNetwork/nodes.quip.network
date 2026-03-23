@@ -1,0 +1,55 @@
+# Quip Network Node - QPU Mode Configuration (D-Wave)
+# See quip-node.example.toml in quip-protocol for all options.
+
+[global]
+node_name = "qpu1.quip"
+listen = "0.0.0.0"
+port = 20049
+
+public_host = "qpu-1.nodes.quip.network:20049"
+
+# Deterministic key generation — change this to a unique value for your node.
+# If left as default, the entrypoint generates a random secret on first boot.
+secret = "CHANGE_ME"
+
+# Peers (excluding self)
+peer = [
+    "cpu-1.quip.carback.us:20049",
+    "gpu-1.quip.carback.us:20049",
+    "gpu-2.quip.carback.us:20050",
+]
+
+timeout = 20
+heartbeat_interval = 15
+heartbeat_timeout = 300
+
+# TLS/SSL for QUIC peer-to-peer
+verify_ssl = true
+
+# Logging
+log_level = "INFO"
+node_log = "/data/logs/node.log"
+http_log = "/data/logs/http.log"
+
+# Telemetry
+telemetry_enabled = true
+telemetry_dir = "/data/telemetry"
+
+[tofu]
+enabled = true
+trust_db = "/data/trust.db"
+
+[rest_api]
+enabled = false
+host = "0.0.0.0"
+http_port = 8080
+cert_dir = "/data/certs"
+
+# QPU miner mode — presence of this section enables QPU mining
+[qpu]
+
+[dwave]
+# D-Wave API token is read from DWAVE_API_KEY environment variable (set in .env)
+solver = "Advantage2_system1.13"
+dwave_region_url = "https://na-west-1.cloud.dwavesys.com/sapi/v2/"
+daily_budget = "16m"

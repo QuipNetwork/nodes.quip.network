@@ -1,0 +1,56 @@
+# Quip Network Node - CUDA GPU Mode Configuration
+# See quip-node.example.toml in quip-protocol for all options.
+
+[global]
+node_name = "my-gpu-node"
+listen = "0.0.0.0"
+port = 20049
+
+# Set to your server's public hostname or IP
+# public_host = "my-node.example.com:20049"
+
+# Deterministic key generation — change this to a unique value for your node.
+# If left as default, the entrypoint generates a random secret on first boot.
+secret = "CHANGE_ME"
+
+peer = [
+    "qpu-1.nodes.quip.network:20049",
+    "cpu-1.quip.carback.us:20049",
+    "gpu-1.quip.carback.us:20049",
+    "gpu-2.quip.carback.us:20050",
+]
+
+timeout = 3
+heartbeat_interval = 15
+heartbeat_timeout = 300
+
+verify_ssl = true
+
+log_level = "INFO"
+node_log = "/data/logs/node.log"
+http_log = "/data/logs/http.log"
+
+telemetry_enabled = true
+telemetry_dir = "/data/telemetry"
+
+[tofu]
+enabled = true
+trust_db = "/data/trust.db"
+
+[rest_api]
+enabled = false
+host = "0.0.0.0"
+http_port = 8080
+cert_dir = "/data/certs"
+
+[gpu]
+# Global GPU defaults — inherited by all GPU device sections below.
+# utilization = 100
+# yielding = false
+
+# GPU devices (auto-detected by entrypoint if not specified here)
+# [cuda.0]
+#
+# [cuda.1]
+# utilization = 50
+# yielding = true

@@ -1,0 +1,68 @@
+services:
+  cpu:
+    image: carback1/quip-network-node-cpu:latest
+    container_name: quip-cpu
+    restart: unless-stopped
+    profiles:
+      - cpu
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    ports:
+      - "20049:20049/udp"
+      - "20049:20049/tcp"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  cuda:
+    image: carback1/quip-network-node-cuda:latest
+    container_name: quip-cuda
+    restart: unless-stopped
+    profiles:
+      - cuda
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    ports:
+      - "20049:20049/udp"
+      - "20049:20049/tcp"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  qpu:
+    image: carback1/quip-network-node-cpu:latest
+    container_name: quip-qpu
+    restart: unless-stopped
+    profiles:
+      - qpu
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    ports:
+      - "20049:20049/udp"
+      - "20049:20049/tcp"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_CLEANUP=true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
