@@ -2,6 +2,7 @@
 # See quip-node.cpu.toml in quip-protocol for all options.
 
 [global]
+genesis_config = "genesis_block.json"
 node_name = "qpu1.quip"
 listen = "::"
 port = 20049

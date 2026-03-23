@@ -2,6 +2,7 @@
 # See quip-node.cuda.toml in quip-protocol for all options.
 
 [global]
+genesis_config = "genesis_block.json"
 node_name = "my-gpu-node"
 listen = "::"
 port = 20049
