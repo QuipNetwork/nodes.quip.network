@@ -1,6 +1,6 @@
 services:
   cpu:
-    image: registry.gitlab.com/piqued/quip-protocol/quip-network-node-cpu:latest
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cpu:latest
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -19,7 +19,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   cuda:
-    image: registry.gitlab.com/piqued/quip-protocol/quip-network-node-cuda:latest
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cuda:latest
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
@@ -45,7 +45,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   qpu:
-    image: registry.gitlab.com/piqued/quip-protocol/quip-network-node-cpu:latest
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cpu:latest
     pull_policy: always
     container_name: quip-qpu
     restart: unless-stopped

@@ -34,7 +34,7 @@ cp env.example .env
 #   DWAVE_API_KEY — D-Wave API token (QPU only)
 ```
 
-TLS certificates are managed automatically by certbot inside the container. When `CERT_EMAIL` is set and `public_host` is a DNS name, the entrypoint obtains a Let's Encrypt certificate on startup and renews daily. For DNS-01 challenges, custom ACME providers, or other advanced options, see [TLS.md](https://gitlab.com/piqued/quip-protocol/-/blob/main/docker/TLS.md).
+TLS certificates are managed automatically by certbot inside the container. When `CERT_EMAIL` is set and `public_host` is a DNS name, the entrypoint obtains a Let's Encrypt certificate on startup and renews daily. For DNS-01 challenges, custom ACME providers, or other advanced options, see [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md).
 
 ### 4. Start
 

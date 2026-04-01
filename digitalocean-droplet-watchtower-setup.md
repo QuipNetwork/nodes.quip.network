@@ -121,7 +121,7 @@ sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ### 4.1 Clone the deployment repo
 
 ```bash
-git clone https://gitlab.com/piqued/nodes.quip.network.git ~/app
+git clone https://gitlab.com/quip.network/nodes.quip.network.git ~/app
 cd ~/app
 ```
 
@@ -229,7 +229,7 @@ The entrypoint obtains a Let's Encrypt certificate on startup and installs a dai
 
 Port 80 must be reachable from the internet for the HTTP-01 ACME challenge (already open from step 3.3).
 
-For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanced options, see [TLS.md](https://gitlab.com/piqued/quip-protocol/-/blob/main/docker/TLS.md).
+For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanced options, see [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md).
 
 ---
 
