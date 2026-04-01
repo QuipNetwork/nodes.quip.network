@@ -48,6 +48,8 @@ telemetry_dir = "/data/telemetry"
 
 # Logging
 log_level = "INFO"
+node_log = "/data/logs/quip-node.log"
+http_log = "/data/logs/quip-http.log"
 
 [cpu]
 # num_cpus is auto-set by entrypoint.sh if not already configured
