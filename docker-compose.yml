@@ -15,8 +15,6 @@ services:
       - "20049:20049/tcp"
       - "80:80/tcp"
       - "443:443/tcp"
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   cuda:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cuda:latest
@@ -41,8 +39,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   qpu:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cpu:latest
@@ -60,5 +56,3 @@ services:
       - "20049:20049/tcp"
       - "80:80/tcp"
       - "443:443/tcp"
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"

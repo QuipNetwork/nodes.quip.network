@@ -2,26 +2,11 @@
 set -euo pipefail
 
 # Auto-update quip node containers by pulling latest images and recreating
-# if changed. Installs itself as a cron job when run with --install.
+# only when the digest changes. Installs itself as an hourly cron job.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
-LOG_FILE="/var/log/quip-update.log"
-
-update() {
-    local profile
-    profile=$(detect_profile)
-    if [[ -z "${profile}" ]]; then
-        echo "$(date -Iseconds) No active quip profile found, skipping" >>"${LOG_FILE}"
-        return 0
-    fi
-
-    {
-        echo "$(date -Iseconds) Checking for updates (profile: ${profile})"
-        docker compose -f "${COMPOSE_FILE}" --profile "${profile}" pull
-        docker compose -f "${COMPOSE_FILE}" --profile "${profile}" up -d
-    } >>"${LOG_FILE}" 2>&1
-}
+LOG_FILE="${SCRIPT_DIR}/data/update.log"
 
 detect_profile() {
     for profile in cuda cpu qpu; do
@@ -32,17 +17,28 @@ detect_profile() {
     done
 }
 
+update() {
+    local profile
+    profile=$(detect_profile)
+    if [[ -z "${profile}" ]]; then
+        echo "$(date -Iseconds) No running quip container found, skipping"
+        return 0
+    fi
+
+    echo "$(date -Iseconds) Checking for updates (profile: ${profile})"
+    docker compose -f "${COMPOSE_FILE}" --profile "${profile}" up -d
+}
+
 install() {
-    local cron_entry="*/5 * * * * ${SCRIPT_DIR}/cron.sh >>/var/log/quip-update.log 2>&1"
+    local cron_entry="0 * * * * ${SCRIPT_DIR}/cron.sh >>${LOG_FILE} 2>&1"
     local cron_marker="# quip-node-update"
 
-    # Remove existing entry if present, then add fresh
     (crontab -l 2>/dev/null | grep -v "${cron_marker}") | {
         cat
         echo "${cron_entry} ${cron_marker}"
     } | crontab -
 
-    echo "Installed cron job (every 5 minutes):"
+    echo "Installed cron job (hourly):"
     echo "  ${cron_entry}"
     echo "Logs: ${LOG_FILE}"
 }

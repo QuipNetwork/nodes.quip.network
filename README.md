@@ -51,17 +51,16 @@ docker compose --profile qpu up -d
 
 ### 5. Auto-updates (recommended)
 
-Set up an hourly cron job to pull the latest image and recreate the container only when it changes. Replace `<profile>` with your mode (`cpu`, `cuda`, or `qpu`):
+Set up an hourly cron job to check for new images and recreate the container only when the digest changes. Replace `<profile>` with your mode (`cpu`, `cuda`, or `qpu`):
 
 ```bash
-# Open crontab
 crontab -e
 
 # Add this line (runs hourly at minute 0):
-0 * * * * cd /path/to/nodes.quip.network && docker compose --profile <profile> pull --quiet && docker compose --profile <profile> up -d >> /var/log/quip-update.log 2>&1
+0 * * * * cd /path/to/nodes.quip.network && docker compose --profile <profile> up -d >> /var/log/quip-update.log 2>&1
 ```
 
-`docker compose up -d` is a no-op when the image hasn't changed — the node keeps running uninterrupted between actual updates.
+`pull_policy: always` in the compose file ensures the registry is checked each time. If the image hasn't changed, `up -d` is a no-op — no restart, no downtime.
 
 ## Updating Configuration
 
