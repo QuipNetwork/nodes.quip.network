@@ -6,7 +6,7 @@ This guide sets up a DigitalOcean Droplet that:
 
 1. Points your DNS at a static IP
 2. Runs a Quip Network node via Docker Compose
-3. Auto-updates the node image using Watchtower
+3. Auto-updates the node image via a cron job
 
 ---
 
@@ -202,7 +202,18 @@ docker compose --profile cuda up -d
 docker compose --profile qpu up -d
 ```
 
-Watchtower polls the registry every 5 minutes and automatically restarts the node when a new image is pushed.
+### 4.6 Set up auto-updates
+
+Add an hourly cron job to pull the latest image and recreate the container only when it changes. Replace `<profile>` with your mode (`cpu`, `cuda`, or `qpu`):
+
+```bash
+crontab -e
+
+# Add this line (runs hourly at minute 0):
+0 * * * * cd ~/app && docker compose --profile <profile> pull --quiet && docker compose --profile <profile> up -d >> /var/log/quip-update.log 2>&1
+```
+
+`docker compose up -d` is a no-op when the image hasn't changed — the node keeps running uninterrupted between actual updates.
 
 ---
 
@@ -214,7 +225,7 @@ The Quip node images are hosted on GitLab Container Registry. If the registry re
 docker login registry.gitlab.com
 ```
 
-This creates `~/.docker/config.json`. Watchtower uses the Docker socket and inherits these credentials automatically.
+This creates `~/.docker/config.json`. The cron job inherits these credentials from the user's Docker config.
 
 ---
 
@@ -238,7 +249,7 @@ For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanc
 | Task | Command |
 |------|---------|
 | View node logs | `docker compose logs -f cpu` (or `cuda`, `qpu`) |
-| View watchtower logs | `docker compose logs -f watchtower` |
+| View auto-update logs | `tail -f /var/log/quip-update.log` |
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
 | Force pull & redeploy | `docker compose pull cpu && docker compose up -d cpu` |
@@ -256,15 +267,6 @@ For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanc
 ---
 
 ## 8. Optional Enhancements
-
-### Watchtower Notifications
-
-Get a Slack alert whenever Watchtower deploys a new image. Add to the watchtower `environment` section in `docker-compose.yml`:
-
-```yaml
-- WATCHTOWER_NOTIFICATIONS=slack
-- WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL=https://hooks.slack.com/services/T00/B00/xxxx
-```
 
 ### Automated Backups
 

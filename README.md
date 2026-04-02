@@ -1,6 +1,6 @@
 # Quip Network Node - Docker Deployment
 
-Quick-start Docker Compose deployment for Quip Network nodes with Watchtower auto-updates. Supports CPU, CUDA (GPU), and QPU (D-Wave) mining modes via compose profiles.
+Quick-start Docker Compose deployment for Quip Network nodes. Supports CPU, CUDA (GPU), and QPU (D-Wave) mining modes via compose profiles.
 
 ## Setup
 
@@ -49,7 +49,19 @@ docker compose --profile cuda up -d
 docker compose --profile qpu up -d
 ```
 
-Watchtower polls the registry every 5 minutes and automatically restarts the node when a new image is pushed.
+### 5. Auto-updates (recommended)
+
+Set up an hourly cron job to pull the latest image and recreate the container only when it changes. Replace `<profile>` with your mode (`cpu`, `cuda`, or `qpu`):
+
+```bash
+# Open crontab
+crontab -e
+
+# Add this line (runs hourly at minute 0):
+0 * * * * cd /path/to/nodes.quip.network && docker compose --profile <profile> pull --quiet && docker compose --profile <profile> up -d >> /var/log/quip-update.log 2>&1
+```
+
+`docker compose up -d` is a no-op when the image hasn't changed — the node keeps running uninterrupted between actual updates.
 
 ## Updating Configuration
 
@@ -70,7 +82,7 @@ docker compose --profile qpu up -d --force-recreate
 | Task | Command |
 |------|---------|
 | View node logs | `docker compose logs -f cpu` (or `cuda`, `qpu`) |
-| View watchtower logs | `docker compose logs -f watchtower` |
+| View auto-update logs | `tail -f /var/log/quip-update.log` |
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
 | Force pull and redeploy | `docker compose pull cpu && docker compose up -d cpu` |
@@ -80,7 +92,7 @@ docker compose --profile qpu up -d --force-recreate
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | Node services (cpu/cuda/qpu profiles) + Watchtower |
+| `docker-compose.yml` | Node services (cpu/cuda/qpu profiles) |
 | `data/config.toml` | Active node configuration (copied from a template) |
 | `data/config.cpu.toml` | CPU mode template |
 | `data/config.cuda.toml` | CUDA GPU mode template |
