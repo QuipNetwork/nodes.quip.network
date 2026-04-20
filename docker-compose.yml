@@ -13,8 +13,13 @@ services:
     ports:
       - "20049:20049/udp"
       - "20049:20049/tcp"
-      - "80:80/tcp"
-      - "443:443/tcp"
+      # REST interface (HTTP + HTTPS). Disabled by default so miner-only nodes
+      # don't conflict with existing web servers on the host. Uncomment both
+      # lines to expose the REST API and let the entrypoint provision a
+      # Let's Encrypt certificate (requires CERT_EMAIL + public_host as DNS).
+      # Full nodes will be required to expose this interface in a future release.
+      # - "80:80/tcp"
+      # - "443:443/tcp"
 
   cuda:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cuda:latest
@@ -30,8 +35,13 @@ services:
     ports:
       - "20049:20049/udp"
       - "20049:20049/tcp"
-      - "80:80/tcp"
-      - "443:443/tcp"
+      # REST interface (HTTP + HTTPS). Disabled by default so miner-only nodes
+      # don't conflict with existing web servers on the host. Uncomment both
+      # lines to expose the REST API and let the entrypoint provision a
+      # Let's Encrypt certificate (requires CERT_EMAIL + public_host as DNS).
+      # Full nodes will be required to expose this interface in a future release.
+      # - "80:80/tcp"
+      # - "443:443/tcp"
     deploy:
       resources:
         reservations:
@@ -54,5 +64,10 @@ services:
     ports:
       - "20049:20049/udp"
       - "20049:20049/tcp"
-      - "80:80/tcp"
-      - "443:443/tcp"
+      # REST interface (HTTP + HTTPS). Disabled by default so miner-only nodes
+      # don't conflict with existing web servers on the host. Uncomment both
+      # lines to expose the REST API and let the entrypoint provision a
+      # Let's Encrypt certificate (requires CERT_EMAIL + public_host as DNS).
+      # Full nodes will be required to expose this interface in a future release.
+      # - "80:80/tcp"
+      # - "443:443/tcp"

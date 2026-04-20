@@ -30,7 +30,8 @@ Edit `data/config.toml`:
 ```bash
 cp env.example .env
 # Edit .env:
-#   CERT_EMAIL  — set to enable automatic Let's Encrypt TLS (requires public_host as DNS name + port 80 open)
+#   CERT_EMAIL  — set to enable automatic Let's Encrypt TLS (requires public_host as DNS name,
+#                 plus uncommenting the 80/443 port bindings in docker-compose.yml — see "Miner-only vs full node" below)
 #   DWAVE_API_KEY — D-Wave API token (QPU only)
 ```
 
@@ -48,6 +49,10 @@ docker compose --profile cuda up -d
 # QPU node
 docker compose --profile qpu up -d
 ```
+
+### Miner-only vs full node
+
+By default the compose file exposes only the QUIP protocol port (20049). The REST interface (80/443) is commented out so miner-only nodes don't conflict with other services on the host. To run a full node — or to let the entrypoint obtain a Let's Encrypt certificate — uncomment the `80:80/tcp` and `443:443/tcp` lines in `docker-compose.yml` for your profile (cpu, cuda, or qpu). Exposing the REST interface will be required for full nodes in a future release.
 
 ### 5. Auto-updates (recommended)
 
