@@ -14,13 +14,6 @@ services:
     ports:
       - "20049:20049/udp"
       - "20049:20049/tcp"
-      # REST interface (HTTP + HTTPS). Disabled by default so miner-only nodes
-      # don't conflict with existing web servers on the host. Uncomment both
-      # lines to expose the REST API and let the entrypoint provision a
-      # Let's Encrypt certificate (requires CERT_EMAIL + public_host as DNS).
-      # Full nodes will be required to expose this interface in a future release.
-      # - "80:80/tcp"
-      # - "443:443/tcp"
     networks:
       default:
         aliases:
@@ -41,13 +34,6 @@ services:
     ports:
       - "20049:20049/udp"
       - "20049:20049/tcp"
-      # REST interface (HTTP + HTTPS). Disabled by default so miner-only nodes
-      # don't conflict with existing web servers on the host. Uncomment both
-      # lines to expose the REST API and let the entrypoint provision a
-      # Let's Encrypt certificate (requires CERT_EMAIL + public_host as DNS).
-      # Full nodes will be required to expose this interface in a future release.
-      # - "80:80/tcp"
-      # - "443:443/tcp"
     networks:
       default:
         aliases:
@@ -75,13 +61,6 @@ services:
     ports:
       - "20049:20049/udp"
       - "20049:20049/tcp"
-      # REST interface (HTTP + HTTPS). Disabled by default so miner-only nodes
-      # don't conflict with existing web servers on the host. Uncomment both
-      # lines to expose the REST API and let the entrypoint provision a
-      # Let's Encrypt certificate (requires CERT_EMAIL + public_host as DNS).
-      # Full nodes will be required to expose this interface in a future release.
-      # - "80:80/tcp"
-      # - "443:443/tcp"
     networks:
       default:
         aliases:
@@ -108,8 +87,6 @@ services:
       RUN_INDEXER: "true"
     volumes:
       - ./dashboard-data:/data
-    ports:
-      - "${DASHBOARD_PORT:-20080}:3001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,6 +112,34 @@ services:
       retries: 10
       start_period: 30s
 
+  caddy:
+    image: caddy:2-alpine
+    pull_policy: always
+    container_name: quip-caddy
+    restart: unless-stopped
+    profiles:
+      - cpu
+      - cuda
+      - qpu
+    env_file:
+      - .env
+    environment:
+      QUIP_HOSTNAME: ${QUIP_HOSTNAME:-localhost}
+      CERT_EMAIL: ${CERT_EMAIL:-}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - dashboard
+
 volumes:
   pgdata:
     name: quip-pgdata
+  caddy-data:
+    name: quip-caddy-data
+  caddy-config:
+    name: quip-caddy-config

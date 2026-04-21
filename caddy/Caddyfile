@@ -1,0 +1,20 @@
+# Caddy front-door for the Quip node + dashboard stack.
+#
+# QUIP_HOSTNAME controls TLS behavior:
+#   - Unset / 'localhost'  → HTTP on :80 + self-signed :443 via Caddy's local CA
+#   - Real DNS name        → auto Let's Encrypt via HTTP-01 on :80, HTTPS on :443
+#
+# CERT_EMAIL registers the ACME account used for renewals.
+{
+	email {$CERT_EMAIL}
+}
+
+{$QUIP_HOSTNAME:localhost} {
+	# Node telemetry / v1 REST
+	handle /api/v1/* {
+		reverse_proxy quip-node:80
+	}
+
+	# Dashboard: /api/telemetry*, /api/health, SPA fallback
+	reverse_proxy quip-dashboard:3001
+}

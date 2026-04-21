@@ -1,6 +1,20 @@
 # Quip Network Node - Docker Deployment
 
-Quick-start Docker Compose deployment for Quip Network nodes. Supports CPU, CUDA (GPU), and QPU (D-Wave) mining modes via compose profiles. Each node profile also brings up the telemetry dashboard and a bundled Postgres backend so operators get a consistent, monitorable deployment out of the box.
+Quick-start Docker Compose deployment for Quip Network nodes. Supports CPU, CUDA (GPU), and QPU (D-Wave) mining modes via compose profiles. Each node profile also brings up a Caddy reverse proxy, the telemetry dashboard, and a bundled Postgres backend — so operators get a single-URL monitoring UI with automatic TLS out of the box.
+
+## Architecture
+
+```
+Internet
+  ├─ 443/tcp, 80/tcp → quip-caddy ─┬─ /api/v1/*  → quip-node:80  (REST)
+  │                                └─ /*         → quip-dashboard:3001
+  └─ 20049/udp+tcp  → quip-node (QUIC peer-to-peer)
+```
+
+Caddy handles HTTP(S) as a single front door: the dashboard SPA at `/` and
+node REST under `/api/v1/*`. TLS is automatic — Caddy's ACME client
+provisions and renews Let's Encrypt certs whenever `QUIP_HOSTNAME` is a
+real DNS name. QUIC peer-to-peer stays on the raw node at port 20049.
 
 ## Setup
 
@@ -30,16 +44,26 @@ Edit `data/config.toml`:
 ```bash
 cp env.example .env
 # Edit .env:
-#   CERT_EMAIL  — set to enable automatic Let's Encrypt TLS (requires public_host as DNS name,
-#                 plus uncommenting the 80/443 port bindings in docker-compose.yml — see "Miner-only vs full node" below)
+#   QUIP_HOSTNAME — 'localhost' (default) serves HTTP only. Set to a real DNS name
+#                   to enable Caddy's automatic Let's Encrypt TLS.
+#   CERT_EMAIL    — email registered with Let's Encrypt; required when QUIP_HOSTNAME
+#                   is a real DNS name.
 #   DWAVE_API_KEY — D-Wave API token (QPU only)
-#   POSTGRES_PASSWORD — optional; defaults to 'quip'. Postgres is not exposed to the host, so
-#                       the default is safe for local use; override for shared hosts.
+#   POSTGRES_PASSWORD — optional; defaults to 'quip'. Postgres is not exposed to the
+#                       host, so the default is safe for local use.
 ```
 
-TLS certificates are managed automatically by certbot inside the container. When `CERT_EMAIL` is set and `public_host` is a DNS name, the entrypoint obtains a Let's Encrypt certificate on startup and renews daily. For DNS-01 challenges, custom ACME providers, or other advanced options, see [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md).
+### 4. (Recommended) Tune the host kernel
 
-### 4. Start
+Apply BBR + fair-queueing + no slow-start-after-idle on the host — improves throughput for long-lived TCP and is required for BBR's packet pacing:
+
+```bash
+sudo ./scripts/sysctl-tune.sh
+```
+
+Idempotent. Writes `/etc/sysctl.d/99-quip.conf` and runs `sysctl --system`. Needs kernel ≥ 4.9 (every supported Ubuntu LTS qualifies).
+
+### 5. Start
 
 ```bash
 # CPU node
@@ -52,11 +76,11 @@ docker compose --profile cuda up -d
 docker compose --profile qpu up -d
 ```
 
-Each command starts three containers: the chosen node (`quip-cpu`/`quip-cuda`/`quip-qpu`), the telemetry dashboard (`quip-dashboard`), and a Postgres database (`quip-postgres`).
+Each command starts four containers: the chosen node (`quip-cpu`/`quip-cuda`/`quip-qpu`), the telemetry dashboard (`quip-dashboard`), a Postgres database (`quip-postgres`), and Caddy (`quip-caddy`).
 
-**Monitor your node at [http://localhost:20080](http://localhost:20080)** — or `http://<host>:20080` when running on a remote machine.
+**Monitor your node at [http://localhost/](http://localhost/)** — or `https://<QUIP_HOSTNAME>/` when running on a remote machine with TLS.
 
-To run a node on its own without the dashboard + Postgres, use the `-nodash` profile variant:
+To run a node on its own without the dashboard, Postgres, and Caddy, use the `-nodash` profile variant:
 
 ```bash
 docker compose --profile cpu-nodash up -d   # or cuda-nodash, qpu-nodash
@@ -64,18 +88,19 @@ docker compose --profile cpu-nodash up -d   # or cuda-nodash, qpu-nodash
 
 `cron.sh` detects which variant is running and preserves your choice on auto-update.
 
-### Miner-only vs full node
+### TLS
 
-By default the compose file exposes only the QUIP protocol port (20049). The REST interface (80/443) is commented out so miner-only nodes don't conflict with other services on the host. To run a full node — or to let the entrypoint obtain a Let's Encrypt certificate — uncomment the `80:80/tcp` and `443:443/tcp` lines in `docker-compose.yml` for your profile (cpu, cuda, or qpu). Exposing the REST interface will be required for full nodes in a future release.
+With `QUIP_HOSTNAME=localhost` (the default) Caddy serves HTTP on `:80` and self-signs `:443` with its internal CA — browsers will warn on HTTPS, so stick to `http://localhost/` for local use.
+
+When `QUIP_HOSTNAME` is a real DNS name that resolves to your host, Caddy provisions a Let's Encrypt cert via HTTP-01 on `:80`, serves HTTPS on `:443`, and redirects HTTP to HTTPS. Set `CERT_EMAIL` in `.env` so Caddy can register its ACME account. Port 80 must be reachable from the internet during provisioning and every renewal.
+
+Certs persist in the `quip-caddy-data` named volume across container recreations.
+
+**QUIC transport TLS** (for node-to-node peer traffic on 20049) is handled by the node itself via the TOFU (trust-on-first-use) model backed by `trust.db`. Sharing Caddy's Let's Encrypt cert into QUIC is not yet wired up here — see [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md) in quip-protocol for manual configuration.
 
 ### Dashboard
 
-The bundled dashboard gives you a live view of your node's block production, mining times, and peer activity. Open it in a browser:
-
-- Local machine: <http://localhost:20080>
-- Remote host: `http://<host>:20080` (e.g. a DigitalOcean droplet IP or DNS name — open port 20080 in your firewall first, and restrict to your IP if the host is internet-facing)
-
-The indexer polls the local node via the Compose network alias `quip-node` (default `QUIP_NODE_URL=http://quip-node:80`). The config templates ship with `rest_insecure_port = 80` enabled inside the node container, so this works out of the box. REST is **not** exposed to the host — the `80:80/tcp` mapping in `docker-compose.yml` stays commented out.
+The dashboard indexer polls the local node over the compose network (`http://quip-node:80`). The config templates ship with `rest_insecure_port = 80` enabled inside the node container, so this works out of the box. The node's REST is **not** exposed to the host directly — all external traffic goes through Caddy.
 
 To point the dashboard at a public full node instead of the local one, set `QUIP_NODE_URL` in `.env`:
 
@@ -83,11 +108,11 @@ To point the dashboard at a public full node instead of the local one, set `QUIP
 QUIP_NODE_URL=https://qpu-1.nodes.quip.network
 ```
 
-Telemetry persists in the `quip-pgdata` named volume, so it survives container recreations. To run node-only (without the dashboard + Postgres), start with the `-nodash` profile variant (`cpu-nodash`, `cuda-nodash`, or `qpu-nodash`).
+Telemetry persists in the `quip-pgdata` named volume, so it survives container recreations.
 
-### 5. Auto-updates (recommended)
+### 6. Auto-updates (recommended)
 
-Install an hourly cron job that checks for new images and recreates the container only when the digest changes:
+Install an hourly cron job that checks for new images and recreates containers only when digests change:
 
 ```bash
 ./cron.sh --install    # install the hourly cron job
@@ -95,7 +120,7 @@ Install an hourly cron job that checks for new images and recreates the containe
 ./cron.sh              # run a one-off update check
 ```
 
-`pull_policy: always` in the compose file ensures the registry is checked each time. If the image hasn't changed, `up -d` is a no-op — no restart, no downtime. Logs are written to `data/update.log`.
+`pull_policy: always` on node/dashboard/caddy ensures the registry is checked each time. If an image hasn't changed, `up -d` is a no-op — no restart, no downtime. Logs are written to `data/update.log`.
 
 ## Updating Configuration
 
@@ -117,7 +142,8 @@ docker compose --profile qpu up -d --force-recreate
 |------|---------|
 | View node logs | `docker compose logs -f cpu` (or `cuda`, `qpu`) |
 | View dashboard logs | `docker compose logs -f dashboard` |
-| View auto-update logs | `tail -f /var/log/quip-update.log` |
+| View Caddy / TLS logs | `docker compose logs -f caddy` |
+| View auto-update logs | `tail -f data/update.log` |
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
 | Force pull and redeploy | `docker compose pull cpu && docker compose up -d cpu` |
@@ -127,12 +153,16 @@ docker compose --profile qpu up -d --force-recreate
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | Node + dashboard + postgres services (cpu/cuda/qpu profiles) |
+| `docker-compose.yml` | Node + dashboard + postgres + caddy services (cpu/cuda/qpu profiles) |
+| `caddy/Caddyfile` | Reverse-proxy + auto-TLS config for the Caddy front door |
 | `data/config.toml` | Active node configuration (copied from a template) |
 | `data/config.cpu.toml` | CPU mode template |
 | `data/config.cuda.toml` | CUDA GPU mode template |
 | `data/config.qpu.toml` | QPU (D-Wave) mode template |
-| `.env` | CERT_EMAIL, DWAVE_API_KEY, optional POSTGRES_PASSWORD (not checked in) |
+| `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle) |
+| `.env` | QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_KEY, optional POSTGRES_PASSWORD (not checked in) |
 | `env.example` | Template for `.env` |
 | `dashboard-data/` | Dashboard auxiliary state (bind mount, gitignored) |
 | `quip-pgdata` | Docker named volume for Postgres data |
+| `quip-caddy-data` | Docker named volume for Caddy's certs + state |
+| `quip-caddy-config` | Docker named volume for Caddy's autosaved config |
