@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     profiles:
       - cpu
+      - cpu-nodash
     env_file:
       - .env
     volumes:
@@ -20,6 +21,10 @@ services:
       # Full nodes will be required to expose this interface in a future release.
       # - "80:80/tcp"
       # - "443:443/tcp"
+    networks:
+      default:
+        aliases:
+          - quip-node
 
   cuda:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cuda:latest
@@ -28,6 +33,7 @@ services:
     restart: unless-stopped
     profiles:
       - cuda
+      - cuda-nodash
     env_file:
       - .env
     volumes:
@@ -42,6 +48,10 @@ services:
       # Full nodes will be required to expose this interface in a future release.
       # - "80:80/tcp"
       # - "443:443/tcp"
+    networks:
+      default:
+        aliases:
+          - quip-node
     deploy:
       resources:
         reservations:
@@ -57,6 +67,7 @@ services:
     restart: unless-stopped
     profiles:
       - qpu
+      - qpu-nodash
     env_file:
       - .env
     volumes:
@@ -71,3 +82,59 @@ services:
       # Full nodes will be required to expose this interface in a future release.
       # - "80:80/tcp"
       # - "443:443/tcp"
+    networks:
+      default:
+        aliases:
+          - quip-node
+
+  dashboard:
+    image: registry.gitlab.com/quip.network/dashboard.quip.network:latest
+    pull_policy: always
+    container_name: quip-dashboard
+    restart: unless-stopped
+    profiles:
+      - cpu
+      - cuda
+      - qpu
+    env_file:
+      - .env
+    environment:
+      DB_ADAPTER: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
+      QUIP_NODE_URL: ${QUIP_NODE_URL:-http://quip-node:80}
+      QUIP_NODE_TOKEN: ${QUIP_NODE_TOKEN:-}
+      PORT: "3001"
+      RUN_SERVER: "true"
+      RUN_INDEXER: "true"
+    volumes:
+      - ./dashboard-data:/data
+    ports:
+      - "${DASHBOARD_PORT:-20080}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    container_name: quip-postgres
+    restart: unless-stopped
+    profiles:
+      - cpu
+      - cuda
+      - qpu
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quip}
+      POSTGRES_USER: ${POSTGRES_USER:-quip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quip}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quip} -d ${POSTGRES_DB:-quip}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  pgdata:
+    name: quip-pgdata

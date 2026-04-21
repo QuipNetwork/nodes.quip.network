@@ -81,6 +81,7 @@ ufw allow 20049/udp    # QUIC peer-to-peer
 ufw allow 20049/tcp    # QUIC peer-to-peer
 ufw allow 80/tcp       # Certbot HTTP-01 ACME challenge
 ufw allow 443/tcp      # HTTPS REST API
+ufw allow 20080/tcp     # Dashboard UI (restrict to your IP for private deployments)
 ufw enable
 ```
 
@@ -167,9 +168,12 @@ tofu = true
 trust_db = "/data/trust.db"
 
 # REST API (-1 = disabled)
+# rest_insecure_port = 80 lets the bundled dashboard poll the node over the
+# compose network; the 80:80/tcp host mapping in docker-compose.yml stays
+# commented out so this is not exposed externally.
 rest_host = "0.0.0.0"
 rest_port = -1
-rest_insecure_port = -1
+rest_insecure_port = 80
 ```
 
 ### 4.4 Configure environment variables
@@ -187,6 +191,10 @@ CERT_EMAIL=admin@example.com
 
 # D-Wave API token (QPU only)
 DWAVE_API_KEY=
+
+# Optional: Postgres isn't exposed to the host, so the default ('quip') is fine
+# for most deployments. Override for defense-in-depth on shared droplets.
+# POSTGRES_PASSWORD=<strong-password>
 ```
 
 ### 4.5 Start the node
@@ -201,6 +209,10 @@ docker compose --profile cuda up -d
 # QPU node
 docker compose --profile qpu up -d
 ```
+
+Each command brings up the selected node plus `quip-dashboard` and `quip-postgres`. The dashboard UI is reachable at `http://<DROPLET_IP>:20080` (or lock it down to your IP with `ufw allow from <your-ip> to any port 20080` and `ufw delete allow 20080/tcp`). The dashboard polls the local node via the compose alias `quip-node`; the config templates ship with `rest_insecure_port = 80` already set so this works out of the box. Override `QUIP_NODE_URL` in `.env` if you prefer to point at a public full node.
+
+To run without the dashboard, use the `-nodash` profile variant (`cpu-nodash`, `cuda-nodash`, `qpu-nodash`) — this skips the dashboard and Postgres services. `cron.sh` detects which variant is running and preserves it on update.
 
 ### 4.6 Set up auto-updates
 
@@ -249,6 +261,7 @@ For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanc
 | Task | Command |
 |------|---------|
 | View node logs | `docker compose logs -f cpu` (or `cuda`, `qpu`) |
+| View dashboard logs | `docker compose logs -f dashboard` |
 | View auto-update logs | `tail -f /var/log/quip-update.log` |
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
