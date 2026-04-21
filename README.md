@@ -81,25 +81,36 @@ docker compose --profile qpu up -d
 
 Each command starts four containers: the chosen node (`quip-cpu`/`quip-cuda`/`quip-qpu`), the telemetry dashboard (`quip-dashboard`), a Postgres database (`quip-postgres`), and Caddy (`quip-caddy`).
 
-**Monitor your node at [http://localhost/](http://localhost/)** — or `https://<QUIP_HOSTNAME>/` when running on a remote machine with TLS.
+**Monitor your node at [http://localhost:20080/](http://localhost:20080/)** — or `https://<QUIP_HOSTNAME>/` when running on a remote machine with TLS.
 
-To run a node on its own without the dashboard, Postgres, and Caddy, use the `-nodash` profile variant:
+Two axes of opt-out are available — pick the profile variant that matches:
+
+| Profile | node | dashboard + postgres | caddy (TLS) | Dashboard access |
+|---|:-:|:-:|:-:|---|
+| `cpu` / `cuda` / `qpu` | ✓ | ✓ | ✓ | `http://localhost:20080` via Caddy (TLS on 443 if `QUIP_HOSTNAME` is a real DNS name) |
+| `cpu-notls` / `cuda-notls` / `qpu-notls` | ✓ | ✓ |   | `http://localhost:20080` direct |
+| `cpu-nodash` / `cuda-nodash` / `qpu-nodash` | ✓ |   |   | — |
+| `cpu-nodash-notls` / … | ✓ |   |   | — (alias for `-nodash`) |
+
+Example: run the dashboard locally on :20080 without Caddy:
 
 ```bash
-docker compose --profile cpu-nodash up -d   # or cuda-nodash, qpu-nodash
+docker compose --profile cpu-notls up -d
 ```
 
-`cron.sh` detects which variant is running and preserves your choice on auto-update.
+`cron.sh` detects which variant is running (based on whether `quip-dashboard` and `quip-caddy` are present) and preserves your choice on auto-update.
 
 ### TLS
 
-With `QUIP_HOSTNAME=localhost` (the default) Caddy serves HTTP on `:80` and self-signs `:443` with its internal CA — browsers will warn on HTTPS, so stick to `http://localhost/` for local use.
+With the default `QUIP_HOSTNAME=localhost:20080`, Caddy serves HTTP on port 20080 with no TLS — good for local dev and avoids stepping on other services that might own the host's port 80. Access the dashboard at `http://localhost:20080/`.
 
-When `QUIP_HOSTNAME` is a real DNS name that resolves to your host, Caddy provisions a Let's Encrypt cert via HTTP-01 on `:80`, serves HTTPS on `:443`, and redirects HTTP to HTTPS. Set `CERT_EMAIL` in `.env` so Caddy can register its ACME account. Port 80 must be reachable from the internet during provisioning and every renewal.
+When `QUIP_HOSTNAME` is a real DNS name (no port), Caddy provisions a certificate via HTTP-01 on `:80`, serves HTTPS on `:443`, and redirects HTTP to HTTPS. Set `CERT_EMAIL` in `.env` so Caddy can register its ACME account. Port 80 must be reachable from the internet during provisioning and every renewal.
+
+The default ACME issuer is **Let's Encrypt**, with **ZeroSSL** as an automatic fallback (built-in to Caddy 2.6+). To pin ZeroSSL as the primary issuer — useful if you want longer cert validity or have hit LE rate limits — uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials. For DNS-01 challenges or other CAs, edit `caddy/Caddyfile` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
 
 Certs persist in the `quip-caddy-data` named volume across container recreations.
 
-**QUIC transport TLS** (for node-to-node peer traffic on 20049) is handled by the node itself via the TOFU (trust-on-first-use) model backed by `trust.db`. Sharing Caddy's Let's Encrypt cert into QUIC is not yet wired up here — see [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md) in quip-protocol for manual configuration.
+**QUIC transport TLS** (for node-to-node peer traffic on 20049) is handled by the node itself via the TOFU (trust-on-first-use) model backed by `trust.db`. Sharing Caddy's cert into QUIC is not yet wired up here — see [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md) in quip-protocol for manual configuration.
 
 ### Dashboard
 

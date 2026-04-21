@@ -1,3 +1,27 @@
+# Shared dashboard configuration. The -notls profiles publish :20080 directly
+# (via the `dashboard-direct` service below); the default profiles keep the
+# dashboard internal-only and let Caddy front :20080 on localhost.
+x-dashboard: &dashboard
+  image: registry.gitlab.com/quip.network/dashboard.quip.network:latest
+  pull_policy: always
+  container_name: quip-dashboard
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    DB_ADAPTER: postgres
+    DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
+    QUIP_NODE_URL: ${QUIP_NODE_URL:-http://quip-node:80}
+    QUIP_NODE_TOKEN: ${QUIP_NODE_TOKEN:-}
+    PORT: "3001"
+    RUN_SERVER: "true"
+    RUN_INDEXER: "true"
+  volumes:
+    - ./dashboard-data:/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+
 services:
   cpu:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cpu:latest
@@ -7,6 +31,8 @@ services:
     profiles:
       - cpu
       - cpu-nodash
+      - cpu-notls
+      - cpu-nodash-notls
     env_file:
       - .env
     environment:
@@ -30,6 +56,8 @@ services:
     profiles:
       - cuda
       - cuda-nodash
+      - cuda-notls
+      - cuda-nodash-notls
     env_file:
       - .env
     environment:
@@ -60,6 +88,8 @@ services:
     profiles:
       - qpu
       - qpu-nodash
+      - qpu-notls
+      - qpu-nodash-notls
     env_file:
       - .env
     environment:
@@ -76,29 +106,24 @@ services:
           - quip-node
 
   dashboard:
-    image: registry.gitlab.com/quip.network/dashboard.quip.network:latest
-    pull_policy: always
-    container_name: quip-dashboard
-    restart: unless-stopped
+    <<: *dashboard
     profiles:
       - cpu
       - cuda
       - qpu
-    env_file:
-      - .env
-    environment:
-      DB_ADAPTER: postgres
-      DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
-      QUIP_NODE_URL: ${QUIP_NODE_URL:-http://quip-node:80}
-      QUIP_NODE_TOKEN: ${QUIP_NODE_TOKEN:-}
-      PORT: "3001"
-      RUN_SERVER: "true"
-      RUN_INDEXER: "true"
-    volumes:
-      - ./dashboard-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
+
+  # Same image/config, but publishes :20080 on the host. Used by the -notls
+  # variants where Caddy is absent. The disjoint profile set means only one
+  # of `dashboard` / `dashboard-direct` is ever active at a time, so the
+  # shared container_name (quip-dashboard) is safe.
+  dashboard-direct:
+    <<: *dashboard
+    profiles:
+      - cpu-notls
+      - cuda-notls
+      - qpu-notls
+    ports:
+      - "${DASHBOARD_PORT:-20080}:3001"
 
   postgres:
     image: postgres:16
@@ -108,6 +133,9 @@ services:
       - cpu
       - cuda
       - qpu
+      - cpu-notls
+      - cuda-notls
+      - qpu-notls
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-quip}
       POSTGRES_USER: ${POSTGRES_USER:-quip}
@@ -133,13 +161,15 @@ services:
     env_file:
       - .env
     environment:
-      QUIP_HOSTNAME: ${QUIP_HOSTNAME:-localhost}
+      QUIP_HOSTNAME: ${QUIP_HOSTNAME:-localhost:20080}
       CERT_EMAIL: ${CERT_EMAIL:-}
+      ZEROSSL_API_KEY: ${ZEROSSL_API_KEY:-}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     ports:
+      - "${DASHBOARD_PORT:-20080}:20080"
       - "80:80"
       - "443:443"
     depends_on:

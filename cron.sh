@@ -13,7 +13,12 @@ detect_profile() {
     running=$(docker ps --format '{{.Names}}')
     local suffix=""
     if ! grep -q "^quip-dashboard$" <<<"${running}"; then
+        # No dashboard → caddy can't be meaningful either; use the -nodash
+        # profile which omits dashboard, postgres, and caddy.
         suffix="-nodash"
+    elif ! grep -q "^quip-caddy$" <<<"${running}"; then
+        # Dashboard is running but caddy isn't → operator picked -notls.
+        suffix="-notls"
     fi
     for profile in cuda cpu qpu; do
         if grep -q "^quip-${profile}$" <<<"${running}"; then

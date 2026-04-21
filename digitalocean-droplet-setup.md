@@ -267,11 +267,13 @@ Caddy manages TLS for the HTTP(S) front-door automatically:
 2. `CERT_EMAIL` in `.env` is set
 3. Port 80 is reachable from the internet (ACME HTTP-01 challenge — already open from step 3.3)
 
-Caddy provisions a Let's Encrypt cert on first startup, serves HTTPS on 443, redirects HTTP→HTTPS, and renews on its own internal timer. Certificates persist in the `quip-caddy-data` named volume.
+Caddy provisions a cert via **Let's Encrypt** on first startup (ZeroSSL as automatic fallback if LE fails), serves HTTPS on 443, redirects HTTP→HTTPS, and renews on its own internal timer. Certificates persist in the `quip-caddy-data` named volume.
+
+To pin ZeroSSL as the primary issuer, uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
 
 **QUIC transport TLS** on port 20049 (node-to-node peer traffic) is a separate concern. The default configuration uses TOFU + `trust.db` for peer identity. See [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md) in quip-protocol for wiring real certs into QUIC.
 
-For DNS-01 challenges or custom ACME providers, see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
+For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced options, edit `caddy/Caddyfile` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
 
 ---
 

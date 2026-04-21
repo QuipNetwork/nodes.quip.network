@@ -1,15 +1,22 @@
 # Caddy front-door for the Quip node + dashboard stack.
 #
-# QUIP_HOSTNAME controls TLS behavior:
-#   - Unset / 'localhost'  → HTTP on :80 + self-signed :443 via Caddy's local CA
-#   - Real DNS name        → auto Let's Encrypt via HTTP-01 on :80, HTTPS on :443
+# QUIP_HOSTNAME controls where Caddy listens and whether TLS is active:
+#   - 'localhost:20080' (default) → HTTP on :20080, no TLS
+#   - Real DNS name (no port)     → HTTP on :80 + HTTPS on :443 with auto-cert
 #
-# CERT_EMAIL registers the ACME account used for renewals.
+# Default ACME issuer is Let's Encrypt, with ZeroSSL as automatic fallback
+# (Caddy 2.6+ builtin). CERT_EMAIL registers the ACME account for renewals.
+#
+# To switch to ZeroSSL as the primary issuer, uncomment the cert_issuer line
+# below. Get an API key from https://app.zerossl.com/developer and export
+# it via ZEROSSL_API_KEY in .env, or leave the substitution empty to use
+# ZeroSSL's on-demand EAB signup via CERT_EMAIL.
 {
 	email {$CERT_EMAIL}
+	# cert_issuer zerossl {$ZEROSSL_API_KEY}
 }
 
-{$QUIP_HOSTNAME:localhost} {
+{$QUIP_HOSTNAME:localhost:20080} {
 	# Node telemetry / v1 REST
 	handle /api/v1/* {
 		reverse_proxy quip-node:80
