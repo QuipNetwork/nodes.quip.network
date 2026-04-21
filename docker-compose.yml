@@ -9,6 +9,9 @@ services:
       - cpu-nodash
     env_file:
       - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
     volumes:
       - ./data:/data
     ports:
@@ -29,6 +32,9 @@ services:
       - cuda-nodash
     env_file:
       - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
     volumes:
       - ./data:/data
     ports:
@@ -56,6 +62,9 @@ services:
       - qpu-nodash
     env_file:
       - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
     volumes:
       - ./data:/data
     ports:

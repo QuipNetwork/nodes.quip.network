@@ -189,8 +189,11 @@ rest_insecure_port = 80
 
 ```bash
 cp env.example .env
+printf 'PUID=%s\nPGID=%s\n' "$(id -u)" "$(id -g)" >> .env
 chmod 600 .env
 ```
+
+The `printf` line seeds `.env` with your host's uid/gid. Since quip-protocol v0.1.7 the node container runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID`; aligning these with your `deploy` user's uid keeps files editable without `sudo`.
 
 Edit `.env`:
 

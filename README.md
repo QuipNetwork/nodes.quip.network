@@ -43,6 +43,7 @@ Edit `data/config.toml`:
 
 ```bash
 cp env.example .env
+printf 'PUID=%s\nPGID=%s\n' "$(id -u)" "$(id -g)" >> .env
 # Edit .env:
 #   QUIP_HOSTNAME — 'localhost' (default) serves HTTP only. Set to a real DNS name
 #                   to enable Caddy's automatic Let's Encrypt TLS.
@@ -52,6 +53,8 @@ cp env.example .env
 #   POSTGRES_PASSWORD — optional; defaults to 'quip'. Postgres is not exposed to the
 #                       host, so the default is safe for local use.
 ```
+
+The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-protocol v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000).
 
 ### 4. (Recommended) Tune the host kernel
 
