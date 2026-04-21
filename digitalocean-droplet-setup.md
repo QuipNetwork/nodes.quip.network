@@ -79,8 +79,8 @@ rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy
 ufw allow OpenSSH
 ufw allow 20049/udp    # QUIC peer-to-peer
 ufw allow 20049/tcp    # QUIC peer-to-peer
-ufw allow 80/tcp       # Certbot HTTP-01 ACME challenge
-ufw allow 443/tcp      # HTTPS REST API
+ufw allow 80/tcp       # Caddy HTTP + Let's Encrypt HTTP-01 challenge
+ufw allow 443/tcp      # Caddy HTTPS (dashboard UI + node REST)
 ufw enable
 ```
 
@@ -113,6 +113,17 @@ sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ```
+
+### 3.5 Tune Kernel Networking (recommended)
+
+Enable BBR + fair-queueing + disable slow-start-after-idle on the host. These improve throughput for long-lived TCP connections (HTTP/2, node REST) and provide the packet pacing BBR requires:
+
+```bash
+cd ~/app   # after cloning in step 4.1
+sudo ./scripts/sysctl-tune.sh
+```
+
+Idempotent; writes `/etc/sysctl.d/99-quip.conf`. Ubuntu 24.04 has all prerequisites.
 
 ---
 
@@ -159,34 +170,47 @@ peer = [
 
 verify_tls = false
 
-# TLS certificates (injected by certbot in entrypoint.sh)
+# TLS certificates for QUIC transport (optional; see TLS.md in quip-protocol
+# for wiring real certs into QUIC — Caddy manages HTTP(S) certs separately).
 # tls_cert_file = "/data/certs/private/fullchain.pem"
 # tls_key_file = "/data/certs/private/privkey.pem"
 
 tofu = true
 trust_db = "/data/trust.db"
 
-# REST API (-1 = disabled)
+# REST API on port 80 inside the container. Caddy (on the compose network)
+# fronts this; the host never sees port 80 of this container directly.
 rest_host = "0.0.0.0"
 rest_port = -1
-rest_insecure_port = -1
+rest_insecure_port = 80
 ```
 
 ### 4.4 Configure environment variables
 
 ```bash
 cp env.example .env
+printf 'PUID=%s\nPGID=%s\n' "$(id -u)" "$(id -g)" >> .env
 chmod 600 .env
 ```
+
+The `printf` line seeds `.env` with your host's uid/gid. Since quip-protocol v0.1.7 the node container runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID`; aligning these with your `deploy` user's uid keeps files editable without `sudo`.
 
 Edit `.env`:
 
 ```bash
-# TLS: enables automatic Let's Encrypt certificates when public_host is a DNS name
+# DNS name the droplet answers on. Caddy uses this for automatic Let's Encrypt
+# TLS; must match the A record from step 2 and be reachable on port 80.
+QUIP_HOSTNAME=mynode.example.com
+
+# Email registered with Let's Encrypt (required when QUIP_HOSTNAME is a DNS name).
 CERT_EMAIL=admin@example.com
 
 # D-Wave API token (QPU only)
 DWAVE_API_KEY=
+
+# Optional: Postgres isn't exposed to the host, so the default ('quip') is fine
+# for most deployments. Override for defense-in-depth on shared droplets.
+# POSTGRES_PASSWORD=<strong-password>
 ```
 
 ### 4.5 Start the node
@@ -201,6 +225,12 @@ docker compose --profile cuda up -d
 # QPU node
 docker compose --profile qpu up -d
 ```
+
+Each command brings up the selected node plus `quip-dashboard`, `quip-postgres`, and `quip-caddy`. Caddy provisions a Let's Encrypt cert for `QUIP_HOSTNAME` on first startup and serves both the dashboard SPA (at `/`) and node REST (at `/api/v1/*`) over HTTPS. Open your browser to `https://mynode.example.com/`.
+
+Caddy's certs persist in the `quip-caddy-data` named volume; renewals happen automatically (no cron or sidecar needed).
+
+To run without the dashboard, use the `-nodash` profile variant (`cpu-nodash`, `cuda-nodash`, `qpu-nodash`) — this skips the dashboard, Postgres, and Caddy. `cron.sh` detects which variant is running and preserves it on update.
 
 ### 4.6 Set up auto-updates
 
@@ -231,16 +261,19 @@ This creates `~/.docker/config.json`. The cron job inherits these credentials fr
 
 ## 6. TLS Certificates
 
-The Quip node image includes built-in certbot support. TLS activates automatically when:
+Caddy manages TLS for the HTTP(S) front-door automatically:
 
-1. `public_host` in `config.toml` is a DNS name (not an IP address)
-2. `CERT_EMAIL` is set in `.env`
+1. `QUIP_HOSTNAME` in `.env` is a DNS name that resolves to this droplet
+2. `CERT_EMAIL` in `.env` is set
+3. Port 80 is reachable from the internet (ACME HTTP-01 challenge — already open from step 3.3)
 
-The entrypoint obtains a Let's Encrypt certificate on startup and installs a daily cron job for renewal. Certificates are stored in `/data/certs/private/`.
+Caddy provisions a cert via **Let's Encrypt** on first startup (ZeroSSL as automatic fallback if LE fails), serves HTTPS on 443, redirects HTTP→HTTPS, and renews on its own internal timer. Certificates persist in the `quip-caddy-data` named volume.
 
-Port 80 must be reachable from the internet for the HTTP-01 ACME challenge (already open from step 3.3).
+To pin ZeroSSL as the primary issuer, uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
 
-For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanced options, see [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md).
+**QUIC transport TLS** on port 20049 (node-to-node peer traffic) is a separate concern. The default configuration uses TOFU + `trust.db` for peer identity. See [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md) in quip-protocol for wiring real certs into QUIC.
+
+For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced options, edit `caddy/Caddyfile` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
 
 ---
 
@@ -249,6 +282,8 @@ For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanc
 | Task | Command |
 |------|---------|
 | View node logs | `docker compose logs -f cpu` (or `cuda`, `qpu`) |
+| View dashboard logs | `docker compose logs -f dashboard` |
+| View Caddy / TLS logs | `docker compose logs -f caddy` |
 | View auto-update logs | `tail -f /var/log/quip-update.log` |
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
@@ -260,9 +295,8 @@ For DNS-01 challenges, custom ACME providers (ZeroSSL, Buypass), or other advanc
 | Prune unused Docker objects | `docker system prune -af` |
 | Edit config | `nano data/config.toml && docker compose restart cpu` |
 | Edit env vars | `nano .env && docker compose --profile cpu up -d --force-recreate` |
-| View TLS certificates | `docker exec quip-cpu certbot certificates --config-dir /data/certs/certbot-config` |
-| Force TLS renewal | `docker exec quip-cpu /data/certs/certbot mynode.example.com` |
-| Check cron | `docker exec quip-cpu busybox crontab -l` |
+| Inspect cert (live) | `openssl s_client -connect mynode.example.com:443 -servername mynode.example.com -brief </dev/null` |
+| Force cert renewal | `docker exec quip-caddy caddy reload --config /etc/caddy/Caddyfile` (normally not needed — Caddy renews on its own) |
 
 ---
 

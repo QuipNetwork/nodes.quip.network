@@ -9,9 +9,20 @@ COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 LOG_FILE="${SCRIPT_DIR}/data/update.log"
 
 detect_profile() {
+    local running
+    running=$(docker ps --format '{{.Names}}')
+    local suffix=""
+    if ! grep -q "^quip-dashboard$" <<<"${running}"; then
+        # No dashboard → caddy can't be meaningful either; use the -nodash
+        # profile which omits dashboard, postgres, and caddy.
+        suffix="-nodash"
+    elif ! grep -q "^quip-caddy$" <<<"${running}"; then
+        # Dashboard is running but caddy isn't → operator picked -notls.
+        suffix="-notls"
+    fi
     for profile in cuda cpu qpu; do
-        if docker ps --format '{{.Names}}' | grep -q "^quip-${profile}$"; then
-            echo "${profile}"
+        if grep -q "^quip-${profile}$" <<<"${running}"; then
+            echo "${profile}${suffix}"
             return
         fi
     done
