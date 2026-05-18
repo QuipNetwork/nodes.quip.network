@@ -98,12 +98,6 @@ The session keys are then visible via `author_hasSessionKeys` over RPC.
 | `9944/tcp` | internal only | Substrate RPC (Caddy proxies; not host-published) |
 | `9615/tcp` | internal only | Substrate Prometheus metrics (Caddy doesn't proxy yet) |
 
-## Operator-2 compromise note
-
-The genesis manifest in [`quip-protocol-rs/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/genesis-quip-testnet.md) documents that operator-2's mnemonic was exposed in a developer session prior to testnet tagging. The slot stays in testnet — 2-of-3 honest operators preserves byzantine tolerance — but the compromised key must be rotated before any mainnet derivation from this testnet.
-
-Do not reuse operator-2 keys for any production / mainnet purpose.
-
 ## See also
 
 - [`README.md`](../README.md) — main deployment guide (miners + non-bootnode operators)

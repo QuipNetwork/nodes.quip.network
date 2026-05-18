@@ -206,11 +206,9 @@ docker run --rm registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-n
 
 Do not hand-edit `chain-specs/quip-testnet.json`. Any change must come from re-exporting after an upstream preset commit.
 
-#### Authorities and known compromise
+#### Authorities
 
 Genesis authorities, sudo, and the full set-keys procedure live in [`quip-protocol-rs/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/genesis-quip-testnet.md). Operator key handling is documented in [`quip-protocol-rs/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/testnet-keys.md).
-
-> ⚠️ **Known compromise:** operator-2's mnemonic was exposed in a developer session before testnet tagging (documented in the genesis manifest). The slot stays in testnet (2-of-3 honest operators preserves byzantine tolerance) but **must be rotated before any mainnet derivation**.
 
 #### Switching to local development
 
