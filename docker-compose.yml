@@ -109,18 +109,22 @@ services:
         aliases:
           - quip-validator
     command:
+      # Bootnodes come from the chain spec's bootNodes array. Override per
+      # deployment by adding additional `--bootnodes=<multiaddr>` entries
+      # via a docker-compose.override.yml. Compose's env-var expansion
+      # can't split a space-separated env var into multiple argv tokens,
+      # so SUBSTRATE_BOOTNODES isn't wired here.
       - --chain=/etc/quip/chain-spec.json
       - --base-path=/data
       - --name=${VALIDATOR_NAME:-quip-validator}
       - --validator
       - --rpc-port=9944
-      - --rpc-external
+      - --unsafe-rpc-external
       - --rpc-cors=*
       - --rpc-methods=safe
       - --prometheus-port=9615
       - --prometheus-external
       - --no-mdns
-      - --bootnodes=${SUBSTRATE_BOOTNODES:-}
 
   # Optional faucet sidecar. Layered additively on top of a validator profile:
   #   docker compose --profile validator-cpu --profile faucet up -d
@@ -197,7 +201,10 @@ services:
       - .env
     environment:
       QUIP_HOSTNAME: ${QUIP_HOSTNAME:-:20049}
-      CERT_EMAIL: ${CERT_EMAIL:-}
+      # ACME registration email. Operators set CERT_EMAIL in .env before
+      # exposing the site over TLS; the placeholder default keeps Caddy
+      # parseable in dev mode where no ACME runs.
+      CERT_EMAIL: ${CERT_EMAIL:-hostmaster@localhost}
       ZEROSSL_API_KEY: ${ZEROSSL_API_KEY:-}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
