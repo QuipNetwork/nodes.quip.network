@@ -22,8 +22,12 @@ x-dashboard: &dashboard
       condition: service_healthy
 
 services:
+  # Shared env block consumed by the quip-miner entrypoint (CPU + CUDA).
+  # All variables are optional — the entrypoint falls back to /data/config.toml
+  # and /data/keystore.json when unset. We override here to point at the
+  # colocated validator + faucet and to expose the REST API on the bridge.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cpu:${QUIP_MINER_TAG:-v0.2-preview}
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2-preview}
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -35,6 +39,11 @@ services:
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      QUIP_VALIDATORS: ${QUIP_VALIDATORS:-ws://quip-validator:9944}
+      QUIP_FAUCET_URL: ${QUIP_FAUCET_URL:-}
+      QUIP_REST_HOST: ${QUIP_REST_HOST:-0.0.0.0}
+      QUIP_REST_PORT: ${QUIP_REST_PORT:-80}
+      QUIP_SIGNER_KEY: ${QUIP_SIGNER_KEY:-/data/keystore.json}
     volumes:
       - ./data:/data
     networks:
@@ -47,7 +56,7 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-network-node-cuda:${QUIP_MINER_TAG:-v0.2-preview}
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cuda:${QUIP_MINER_TAG:-v0.2-preview}
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
@@ -59,6 +68,12 @@ services:
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      QUIP_MODE: gpu
+      QUIP_VALIDATORS: ${QUIP_VALIDATORS:-ws://quip-validator:9944}
+      QUIP_FAUCET_URL: ${QUIP_FAUCET_URL:-}
+      QUIP_REST_HOST: ${QUIP_REST_HOST:-0.0.0.0}
+      QUIP_REST_PORT: ${QUIP_REST_PORT:-80}
+      QUIP_SIGNER_KEY: ${QUIP_SIGNER_KEY:-/data/keystore.json}
     volumes:
       - ./data:/data
     networks:
@@ -125,6 +140,12 @@ services:
       - --prometheus-port=9615
       - --prometheus-external
       - --no-mdns
+      # Auto-generate the libp2p node identity on first boot. Required for
+      # joiner / observer nodes that don't have a published peer id (substrate
+      # otherwise refuses to start with NetworkKeyNotFound when --validator
+      # is set). Bootnode operators replace this with --node-key-file=/data/node-key
+      # per docs/testnet-deployment.md so their peer id matches the chain spec.
+      - --unsafe-force-node-key-generation
 
   # Optional faucet sidecar. Layered additively on top of a validator profile:
   #   docker compose --profile validator-cpu --profile faucet up -d
