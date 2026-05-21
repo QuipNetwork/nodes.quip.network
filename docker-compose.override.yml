@@ -1,0 +1,61 @@
+# LOCAL DEV OVERRIDE — not part of the deliverable.
+#
+# Flips the stack from "join the live Quip Testnet" to "self-contained
+# single-validator local dev chain" so the miner can mine immediately
+# without waiting for upstream testnet plumbing.
+#
+# Flow (run once against a fresh chain — wipe data/validator-data/chains
+# first if the chain has prior state, since DefaultTopology is one-shot):
+#   1. quip-validator boots against substrate's baked-in `dev` preset:
+#      Alice is the sole authority (so GRANDPA can finalize solo), sudo,
+#      and pre-funded. --force-authoring lets BABE seal without peers.
+#      (Don't use `local` — that's Alice+Bob+Charlie and GRANDPA stalls
+#      with only one voter online.)
+#   2. quip-faucet runs //Alice as the funder (pre-funded at genesis).
+#   3. Seed advantage2_system1 + Difficulty via //Alice sudo (one-shot):
+#        docker compose --profile validator-cpu run --rm \
+#          -v $(pwd)/scripts/seed-advantage2-topology.py:/seed.py:ro \
+#          --entrypoint python3 cpu /seed.py --sudo-key //Alice
+#   4. Register the miner + faucet-fund it (idempotent, skips seeding):
+#        docker compose --profile validator-cpu run --rm \
+#          --entrypoint quip-miner cpu \
+#          bootstrap --validator ws://quip-validator:9944 \
+#          --signer-key /data/keystore.json \
+#          --faucet-url http://quip-faucet:8087
+#   5. cpu miner auto-funds itself via QUIP_FAUCET_URL on subsequent boots.
+#
+# Delete this file to go back to the live testnet.
+
+services:
+  quip-validator:
+    command:
+      - --chain=dev
+      - --alice
+      - --base-path=/data
+      - --name=local-dev-validator
+      - --validator
+      - --force-authoring
+      - --rpc-port=9944
+      - --unsafe-rpc-external
+      - --rpc-cors=*
+      - --rpc-methods=unsafe
+      - --prometheus-port=9615
+      - --prometheus-external
+      - --no-mdns
+      - --unsafe-force-node-key-generation
+
+  cpu:
+    environment:
+      QUIP_FAUCET_URL: http://quip-faucet:8087
+
+  cuda:
+    environment:
+      QUIP_FAUCET_URL: http://quip-faucet:8087
+
+  quip-faucet:
+    profiles:
+      # Pull the faucet into the default validator profile so a single
+      # `--profile validator-cpu up` brings it up alongside the validator.
+      - validator-cpu
+      - validator-cuda
+      - faucet
