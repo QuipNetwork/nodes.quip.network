@@ -3,4 +3,14 @@ data/config.toml
 data/trust.db
 data/certs/
 data/telemetry/
+data/logs/
+data/webroot/
+data/validator-data/
+data/node-key
+data/wallet/
+data/keystore.json
+data/signing.json
+data/genesis_block.json
 dashboard-data/
+nodes.json
+*.bak
