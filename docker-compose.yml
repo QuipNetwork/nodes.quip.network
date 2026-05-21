@@ -133,6 +133,13 @@ services:
       - --base-path=/data
       - --name=${VALIDATOR_NAME:-quip-validator}
       - --validator
+      # Full archive node: keep every state trie + block body so historical RPC
+      # (e.g. the dashboard descriptor worker scanning from genesis) works
+      # without hitting "State already discarded" past the default 256-block
+      # pruning window. Operators who want to reclaim disk can override these
+      # via docker-compose.override.yml.
+      - --state-pruning=archive
+      - --blocks-pruning=archive
       - --rpc-port=9944
       - --unsafe-rpc-external
       - --rpc-cors=*

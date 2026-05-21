@@ -35,6 +35,8 @@ services:
       - --name=local-dev-validator
       - --validator
       - --force-authoring
+      - --state-pruning=archive
+      - --blocks-pruning=archive
       - --rpc-port=9944
       - --unsafe-rpc-external
       - --rpc-cors=*
