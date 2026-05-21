@@ -8,36 +8,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 LOG_FILE="${SCRIPT_DIR}/data/update.log"
 
+# Print the --profile arguments needed to recreate whatever the operator is
+# currently running, one flag pair per line. The validator profile is
+# selected based on whether quip-validator is alongside the miner; the
+# faucet profile is layered additively when quip-faucet is also up.
 detect_profile() {
     local running
     running=$(docker ps --format '{{.Names}}')
-    local suffix=""
-    if ! grep -q "^quip-dashboard$" <<<"${running}"; then
-        # No dashboard → caddy can't be meaningful either; use the -nodash
-        # profile which omits dashboard, postgres, and caddy.
-        suffix="-nodash"
-    elif ! grep -q "^quip-caddy$" <<<"${running}"; then
-        # Dashboard is running but caddy isn't → operator picked -notls.
-        suffix="-notls"
-    fi
-    for profile in cuda cpu qpu; do
-        if grep -q "^quip-${profile}$" <<<"${running}"; then
-            echo "${profile}${suffix}"
-            return
+    local has_validator=0
+    grep -q "^quip-validator$" <<<"${running}" && has_validator=1
+
+    if grep -q "^quip-cpu$" <<<"${running}"; then
+        if [[ ${has_validator} -eq 1 ]]; then
+            printf -- '--profile\nvalidator-cpu\n'
+        else
+            printf -- '--profile\ncpu\n'
         fi
-    done
+    elif grep -q "^quip-cuda$" <<<"${running}"; then
+        if [[ ${has_validator} -eq 1 ]]; then
+            printf -- '--profile\nvalidator-cuda\n'
+        else
+            printf -- '--profile\ncuda\n'
+        fi
+    fi
+
+    if grep -q "^quip-faucet$" <<<"${running}"; then
+        printf -- '--profile\nfaucet\n'
+    fi
 }
 
 update() {
-    local profile
-    profile=$(detect_profile)
-    if [[ -z "${profile}" ]]; then
+    local profile_args=()
+    mapfile -t profile_args < <(detect_profile)
+    if [[ ${#profile_args[@]} -eq 0 ]]; then
         echo "$(date -Iseconds) No running quip container found, skipping"
         return 0
     fi
 
-    echo "$(date -Iseconds) Checking for updates (profile: ${profile})"
-    docker compose -f "${COMPOSE_FILE}" --profile "${profile}" up -d
+    echo "$(date -Iseconds) Checking for updates (${profile_args[*]})"
+    docker compose -f "${COMPOSE_FILE}" "${profile_args[@]}" up -d
 }
 
 install() {

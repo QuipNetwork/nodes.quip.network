@@ -1,27 +1,56 @@
-# Caddy front-door for the Quip node + dashboard stack.
+# Caddy front-door for the Quip stack.
 #
-# QUIP_HOSTNAME controls where Caddy listens and whether TLS is active:
-#   - 'localhost:20080' (default) → HTTP on :20080, no TLS
-#   - Real DNS name (no port)     → HTTP on :80 + HTTPS on :443 with auto-cert
+# QUIP_HOSTNAME controls listen addresses and TLS in a single value:
 #
-# Default ACME issuer is Let's Encrypt, with ZeroSSL as automatic fallback
-# (Caddy 2.6+ builtin). CERT_EMAIL registers the ACME account for renewals.
+#   Dev / localhost (HTTP only):
+#     QUIP_HOSTNAME=:20049
+#   Bare port -> HTTP on that port, no auto-TLS.
 #
-# To switch to ZeroSSL as the primary issuer, uncomment the cert_issuer line
-# below. Get an API key from https://app.zerossl.com/developer and export
-# it via ZEROSSL_API_KEY in .env, or leave the substitution empty to use
-# ZeroSSL's on-demand EAB signup via CERT_EMAIL.
+#   Production (auto-TLS on :443 + :20049, :80 auto-redirects to :443):
+#     QUIP_HOSTNAME=cpu-1.nodes.quip.network, cpu-1.nodes.quip.network:20049
+#   Two comma-separated bare DNS entries: Caddy provisions one Let's Encrypt
+#   cert covering both, auto-binds :443 + :20049, and adds the :80 redirect.
+#   Port 80 must be reachable from the internet for the ACME HTTP-01 challenge.
+#
+# CERT_EMAIL registers the ACME account. Default issuer is Let's Encrypt with
+# ZeroSSL as automatic fallback (Caddy 2.6+). The placeholder default keeps
+# Caddy parseable in dev mode (no ACME runs without a real DNS name); set a
+# real email in .env before exposing the site over TLS.
 {
-	email {$CERT_EMAIL}
+	email {$CERT_EMAIL:hostmaster@localhost}
 	# cert_issuer zerossl {$ZEROSSL_API_KEY}
 }
 
-{$QUIP_HOSTNAME:localhost:20080} {
-	# Node telemetry / v1 REST
+(routing) {
+	# Substrate JSON-RPC (HTTP POST + WebSocket). Two handlers so both `/rpc`
+	# and `/rpc/...` work — handle_path's `/rpc/*` pattern doesn't match a
+	# bare `/rpc` (no trailing slash), which is the natural URL most clients
+	# use. Active only under validator-* profiles; cpu/cuda profiles 502
+	# cleanly because there's no quip-validator to proxy to.
+	handle /rpc {
+		rewrite * /
+		reverse_proxy quip-validator:9944
+	}
+	handle_path /rpc/* {
+		reverse_proxy quip-validator:9944
+	}
+
+	# Optional faucet sidecar (`--profile faucet`). The bot serves /request
+	# and /health; handle_path strips /api/faucet so external POST
+	# /api/faucet/request reaches the bot's POST /request.
+	handle_path /api/faucet/* {
+		reverse_proxy quip-faucet:8087
+	}
+
+	# Miner telemetry / v1 REST.
 	handle /api/v1/* {
 		reverse_proxy quip-node:80
 	}
 
-	# Dashboard: /api/telemetry*, /api/health, SPA fallback
+	# Dashboard SPA + its /api/telemetry, /api/health, etc.
 	reverse_proxy quip-dashboard:3001
+}
+
+{$QUIP_HOSTNAME} {
+	import routing
 }
