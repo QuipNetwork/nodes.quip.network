@@ -51,6 +51,6 @@
 	reverse_proxy quip-dashboard:3001
 }
 
-{$QUIP_HOSTNAME} {
+{$QUIP_HOSTNAME::20049} {
 	import routing
 }

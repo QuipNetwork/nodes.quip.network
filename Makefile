@@ -13,7 +13,7 @@ COMPOSE_TESTNET  := docker compose -f docker-compose.yml
 
 .DEFAULT_GOAL := help
 
-.PHONY: help testnet localdev pull down logs clean-chain require-env
+.PHONY: help testnet localdev pull down logs clean clean-chain require-env
 
 help:
 	@echo "nodes.quip.network — operator targets"
@@ -26,6 +26,7 @@ help:
 	@echo "  make down              Tear down both profile sets"
 	@echo "  make logs              Tail validator + miner logs"
 	@echo "  make clean-chain       Wipe data/validator-data/chains"
+	@echo "  make clean             Full reset: down + wipe chain, pgdata volume, dashboard-data"
 	@echo ""
 	@echo "Variables (override on cmdline):"
 	@echo "  PROFILE=$(PROFILE)         compose profile (validator-cpu | validator-cuda)"
@@ -68,15 +69,20 @@ localdev: require-env down clean-chain
 	$(COMPOSE) --profile $(PROFILE) up -d
 	@echo ""
 	@echo "localdev stack up. tail logs: make logs"
+	@echo ""
+	@echo "  dashboard            : http://localhost:20049/"
+	@echo "  miner REST (v1)      : http://localhost:20049/api/v1/"
+	@echo "  faucet (POST)        : http://localhost:20049/api/faucet/request"
+	@echo "  substrate RPC        : http://localhost:20049/rpc  (HTTP + WS)"
 
 pull: require-env
 	$(COMPOSE) --profile $(PROFILE) pull
 
 down:
-	-$(COMPOSE) --profile $(PROFILE) --profile faucet down
+	$(COMPOSE) --profile $(PROFILE) --profile faucet down
 
 logs:
-	$(COMPOSE) logs -f --tail=50 quip-validator cpu cuda 2>/dev/null
+	$(COMPOSE) logs -f --tail=50 quip-validator cpu cuda
 
 # `trash` keeps wiped chains recoverable via macOS Trash per global preference;
 # the rm fallback covers Linux/CI hosts without `trash` installed.
@@ -85,4 +91,17 @@ clean-chain:
 	    trash data/validator-data/chains 2>/dev/null || true; \
 	else \
 	    rm -rf data/validator-data/chains; \
+	fi
+
+# Full reset. Tears the stack down, wipes the chain, removes the postgres
+# data volume (fixes the cross-project `quip-pgdata` mismatch that breaks
+# the dashboard migration with "password authentication failed"), and
+# clears dashboard-data so the indexer re-syncs from scratch alongside the
+# fresh DB. Destructive — do not run on a production node without a dump.
+clean: down clean-chain
+	-docker volume rm quip-pgdata 2>/dev/null
+	@if command -v trash >/dev/null 2>&1; then \
+	    trash dashboard-data 2>/dev/null || true; \
+	else \
+	    rm -rf dashboard-data; \
 	fi

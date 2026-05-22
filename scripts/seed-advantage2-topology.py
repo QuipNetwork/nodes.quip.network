@@ -123,7 +123,7 @@ async def main(args: argparse.Namespace) -> int:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=__doc__.split("\n\n", 1)[0],
+        description=(__doc__ or "").split("\n\n", 1)[0],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

@@ -1,7 +1,7 @@
 # Shared dashboard configuration. The dashboard is always present alongside
 # every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
 x-dashboard: &dashboard
-  image: registry.gitlab.com/quip.network/dashboard.quip.network:latest
+  image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-v0.2-preview}
   pull_policy: always
   container_name: quip-dashboard
   restart: unless-stopped
@@ -12,6 +12,12 @@ x-dashboard: &dashboard
     DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
     QUIP_NODE_URL: ${QUIP_NODE_URL:-http://quip-node:80}
     QUIP_NODE_TOKEN: ${QUIP_NODE_TOKEN:-}
+    # Substrate WS RPC for the indexer's substrate + descriptor workers.
+    # Without this the indexer logs `substrate=disabled` and the chain
+    # tab (epochs, finalized head, validator authorship, hardware
+    # descriptor backfill) stays empty. Defaults to the colocated
+    # validator alias; miner-only nodes point it at a remote validator.
+    QUIP_VALIDATOR_RPC_URL: ${QUIP_VALIDATOR_RPC_URL:-ws://quip-validator:9944}
     PORT: "3001"
     RUN_SERVER: "true"
     RUN_INDEXER: "true"
@@ -34,6 +40,12 @@ services:
     profiles:
       - cpu
       - validator-cpu
+    # Restrict visible CPUs so the upstream entrypoint's `num_cpus = $(nproc)`
+    # autodetect writes a polite default instead of saturating the host. Linux
+    # `nproc` reads sched_getaffinity(2), which honors the cgroup cpuset — so
+    # this is what the entrypoint actually sees, unlike `cpus:` (CFS quota).
+    # Operators with dedicated miner hosts override with e.g. QUIP_MINER_CPUSET=0-15.
+    cpuset: ${QUIP_MINER_CPUSET:-0}
     env_file:
       - .env
     environment:
