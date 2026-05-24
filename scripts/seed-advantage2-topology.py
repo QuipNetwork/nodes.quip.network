@@ -40,7 +40,7 @@ from shared.miner_bootstrap import (
     _sudo_call,
     scale_dict,
 )
-from shared.substrate_client import SubstrateClient
+from substrate.client import SubstrateClient
 
 
 def _build_signer(sudo_key: str) -> HybridSigner:

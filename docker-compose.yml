@@ -10,7 +10,7 @@ x-dashboard: &dashboard
   environment:
     DB_ADAPTER: postgres
     DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
-    QUIP_NODE_URL: ${QUIP_NODE_URL:-http://quip-node:80}
+    QUIP_NODE_URL: ${QUIP_NODE_URL:-http://quip-miner:80}
     QUIP_NODE_TOKEN: ${QUIP_NODE_TOKEN:-}
     # Substrate WS RPC for the indexer's substrate + descriptor workers.
     # Without this the indexer logs `substrate=disabled` and the chain
@@ -61,7 +61,7 @@ services:
     networks:
       default:
         aliases:
-          - quip-node
+          - quip-miner
     depends_on:
       quip-validator:
         condition: service_started
@@ -91,7 +91,7 @@ services:
     networks:
       default:
         aliases:
-          - quip-node
+          - quip-miner
     depends_on:
       quip-validator:
         condition: service_started

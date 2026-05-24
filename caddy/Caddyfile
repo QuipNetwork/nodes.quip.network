@@ -44,7 +44,7 @@
 
 	# Miner telemetry / v1 REST.
 	handle /api/v1/* {
-		reverse_proxy quip-node:80
+		reverse_proxy quip-miner:80
 	}
 
 	# Dashboard SPA + its /api/telemetry, /api/health, etc.
