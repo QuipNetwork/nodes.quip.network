@@ -2,6 +2,10 @@
 
 ## v0.2 (unreleased)
 
+### Testnet auto-fund on first boot
+
+`QUIP_FAUCET_URL` now defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`. On a fresh `make testnet` (or `docker compose --profile cpu up -d`) the miner entrypoint generates the keystore, calls the testnet faucet to register the new account on-chain and fund it, and starts mining — no manual `quip-miner bootstrap` step required. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out if you pre-fund the account yourself. `docker-compose.override.yml` (used by `make localdev`) flips this to the colocated dev faucet, so localdev continues to use `//Alice` via the bundled `quip-faucet` sidecar.
+
 ### Compose profile collapse
 
 The `validator-cpu` and `validator-cuda` profiles are gone. The `cpu` and `cuda` profiles now bundle the substrate validator + dashboard + Caddy by default, so every operator runs a local validator without needing to opt in. Effects:

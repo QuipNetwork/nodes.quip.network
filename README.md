@@ -112,7 +112,9 @@ docker compose --profile cuda up -d
 docker compose --profile cpu --profile faucet up -d
 ```
 
-Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. Check it came up cleanly:
+Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.), auto-generates `data/keystore.json` for the miner, and the miner entrypoint then calls out to the canonical Quip Testnet faucet (`https://faucet.testnet.quip.network`, wired by default in `docker-compose.yml`) to register the new account on-chain and fund it for the first proof submission. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out if you've pre-funded the account yourself.
+
+Check it came up cleanly:
 
 ```bash
 docker compose --profile cpu ps
