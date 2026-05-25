@@ -2,6 +2,16 @@
 
 ## v0.2 (unreleased)
 
+### Compose profile collapse
+
+The `validator-cpu` and `validator-cuda` profiles are gone. The `cpu` and `cuda` profiles now bundle the substrate validator + dashboard + Caddy by default, so every operator runs a local validator without needing to opt in. Effects:
+
+- `docker compose --profile cpu up -d` (or `cuda`) now brings up: miner, validator, dashboard, postgres, Caddy.
+- `--profile faucet` still layers additively on top.
+- `Makefile`'s `PROFILE` default is now `cpu` (was `validator-cpu`).
+- TLS is best-effort: if Caddy can provision a cert (HTTP-01 on `:80` or DNS-01), the public RPC is served at `wss://<host>/rpc`. Without it the validator still runs and is reachable on the compose network — only the public WSS endpoint depends on the cert.
+- Operators who want a miner-only host pointing at a remote validator still can — set `QUIP_VALIDATORS` in `.env` to the remote WS URL — but it's no longer the default topology.
+
 ### Upgrading from v0.1 — config migration required
 
 The miner config schema changed substantially. Run `make updateconfig` (or `make updateconfig-docker` if the host has Python < 3.11) against your `data/` directory to convert in place. The original files are moved to `data/.v0.1_backup/`; nothing is deleted.
@@ -37,3 +47,12 @@ The full operator runbook (stop v0.1 containers, pull v0.2, convert config, choo
 4. Prints operator-actionable warnings to stderr: dropped `port`/`listen` (semantics flipped), dropped `peer[]` (no P2P mesh anymore), `[telemetry_api]` removed, `[dwave].token` preserved but DWAVE_API_KEY in environment is now the convention.
 
 Comments from the v0.1 file are not preserved — stdlib `tomllib` discards them. The canonical v0.2 template at `data/config.toml` ships with inline documentation; reference it after conversion.
+
+#### `.env` cleanup (manual)
+
+The `make updateconfig` script only touches `data/config.toml`; `.env` is operator-owned and not rewritten. Diff your `.env` against the v0.2 `env.example` and delete the following stale entries:
+
+- `QUIP_NODE_URL` — superseded by `QUIP_VALIDATOR_RPC_URLS`, a comma-separated list of substrate WS URLs that drives both chain indexing and the miner REST surface (Caddy fronts both on the same host). For miner-only nodes, point it at a public full node, e.g. `wss://cpu-1.nodes.quip.network/rpc`.
+- `QUIP_NODE_TOKEN` — removed; access control moved out of the dashboard image into the deployment layer (reverse-proxy auth, network policy).
+
+Leaving the stale lines in `.env` is harmless (compose ignores unknown vars), but they're misleading for anyone reading the file later.

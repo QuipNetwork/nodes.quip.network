@@ -12,20 +12,17 @@ secret = "CHANGE_ME"
 # auto_mine = false
 
 # Substrate validator RPC endpoints the miner submits work to. The first
-# reachable entry is used; the rest are fallbacks. Default points at the
-# canonical Quip Testnet bootnodes (their hostnames match the bootNodes
-# array in chain-specs/quip-testnet.json); co-located deployments running
-# validator-cpu / validator-cuda should override the first entry to
-# ws://quip-validator:9944 to use the local validator over the compose
-# network.
+# reachable entry is used; the rest are fallbacks. The cpu / cuda profiles
+# bundle a local validator by default, so point at it via the compose
+# network alias. The docker-compose.yml `QUIP_VALIDATORS` env var
+# overrides this at launch time.
 validators = [
-    "wss://bootnode-1.testnet.quip.network:20049/rpc",
-    "wss://bootnode-2.testnet.quip.network:20049/rpc",
-    "wss://bootnode-3.testnet.quip.network:20049/rpc",
+    "ws://quip-validator:9944",
 ]
-# Example for an operator running a colocated validator (validator-cuda profile):
+# Example for a miner pointing at a remote full node (e.g. when running the
+# miner on a separate host from the validator):
 # validators = [
-#     "ws://quip-validator:9944",
+#     "wss://cpu-1.nodes.quip.network/rpc",
 # ]
 
 # REST API (-1 = disabled)

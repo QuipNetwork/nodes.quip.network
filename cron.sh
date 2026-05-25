@@ -9,27 +9,17 @@ COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 LOG_FILE="${SCRIPT_DIR}/data/update.log"
 
 # Print the --profile arguments needed to recreate whatever the operator is
-# currently running, one flag pair per line. The validator profile is
-# selected based on whether quip-validator is alongside the miner; the
-# faucet profile is layered additively when quip-faucet is also up.
+# currently running, one flag pair per line. cpu and cuda profiles now
+# bundle the validator + dashboard + caddy by default; the faucet profile
+# layers additively when quip-faucet is also up.
 detect_profile() {
     local running
     running=$(docker ps --format '{{.Names}}')
-    local has_validator=0
-    grep -q "^quip-validator$" <<<"${running}" && has_validator=1
 
     if grep -q "^quip-cpu$" <<<"${running}"; then
-        if [[ ${has_validator} -eq 1 ]]; then
-            printf -- '--profile\nvalidator-cpu\n'
-        else
-            printf -- '--profile\ncpu\n'
-        fi
+        printf -- '--profile\ncpu\n'
     elif grep -q "^quip-cuda$" <<<"${running}"; then
-        if [[ ${has_validator} -eq 1 ]]; then
-            printf -- '--profile\nvalidator-cuda\n'
-        else
-            printf -- '--profile\ncuda\n'
-        fi
+        printf -- '--profile\ncuda\n'
     fi
 
     if grep -q "^quip-faucet$" <<<"${running}"; then

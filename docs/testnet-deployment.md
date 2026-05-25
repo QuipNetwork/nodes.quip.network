@@ -79,7 +79,7 @@ docker compose exec quip-validator \
 Restart the validator after inserting both keys:
 
 ```bash
-docker compose --profile validator-cpu restart quip-validator
+docker compose --profile cpu restart quip-validator
 ```
 
 The session keys are then visible via `author_hasSessionKeys` over RPC.
@@ -97,6 +97,17 @@ The session keys are then visible via `author_hasSessionKeys` over RPC.
 | `20049/tcp` | inbound (public) | Same routes as `:443`, both bindings share one Let's Encrypt cert |
 | `9944/tcp` | internal only | Substrate RPC (Caddy proxies; not host-published) |
 | `9615/tcp` | internal only | Substrate Prometheus metrics (Caddy doesn't proxy yet) |
+
+After bringing the validator up, verify every public-inbound port from the operator host via [`check.quip.network`](https://check.quip.network). The service self-checks using the caller's source IP (no host parameter), so curl from the host whose ports you want validated:
+
+```bash
+for p in 30333 80 443 20049; do
+  curl -sS "https://check.quip.network/checkport?port=$p"
+  echo
+done
+```
+
+Bootnodes that fail the `:30333` check will keep gossiping outbound but no one can dial them — peer counts on other validators drop and the testnet loses redundancy. Treat a `"reachable": false` for `:30333` as on-call-grade.
 
 ## See also
 

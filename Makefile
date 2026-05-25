@@ -6,7 +6,7 @@
 #
 # Run `make help` for the full target list.
 
-PROFILE          ?= validator-cpu
+PROFILE          ?= cpu
 SUDO_KEY         ?= //Alice
 DATA             ?= data
 COMPOSE          := docker compose
@@ -35,7 +35,7 @@ help:
 	@echo "  make clean             Full reset: down + wipe chain, pgdata volume, dashboard-data"
 	@echo ""
 	@echo "Variables (override on cmdline):"
-	@echo "  PROFILE=$(PROFILE)         compose profile (validator-cpu | validator-cuda)"
+	@echo "  PROFILE=$(PROFILE)         compose profile (cpu | cuda; faucet layers additively)"
 	@echo "  SUDO_KEY=$(SUDO_KEY)       dev URI used for localdev seeding"
 	@echo "  DATA=$(DATA)               data dir converted by updateconfig"
 

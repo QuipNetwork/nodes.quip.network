@@ -13,11 +13,11 @@
 #      with only one voter online.)
 #   2. quip-faucet runs //Alice as the funder (pre-funded at genesis).
 #   3. Seed advantage2_system1 + Difficulty via //Alice sudo (one-shot):
-#        docker compose --profile validator-cpu run --rm \
+#        docker compose --profile cpu run --rm \
 #          -v $(pwd)/scripts/seed-advantage2-topology.py:/seed.py:ro \
 #          --entrypoint python3 cpu /seed.py --sudo-key //Alice
 #   4. Register the miner + faucet-fund it (idempotent, skips seeding):
-#        docker compose --profile validator-cpu run --rm \
+#        docker compose --profile cpu run --rm \
 #          --entrypoint quip-miner cpu \
 #          bootstrap --validator ws://quip-validator:9944 \
 #          --signer-key /data/keystore.json \
@@ -56,8 +56,8 @@ services:
 
   quip-faucet:
     profiles:
-      # Pull the faucet into the default validator profile so a single
-      # `--profile validator-cpu up` brings it up alongside the validator.
-      - validator-cpu
-      - validator-cuda
+      # Pull the faucet into the miner profiles so a single
+      # `--profile cpu up` brings it up alongside the validator + miner.
+      - cpu
+      - cuda
       - faucet

@@ -14,10 +14,23 @@ Internet
   │                        ├─ /api/v1/*     → quip-node:80         (miner telemetry)
   │                        └─ /*            → quip-dashboard:3001  (dashboard SPA)
   ├─ 20049/tcp → quip-caddy (same routes as :443; the canonical Quip API port)
-  └─ 30333/tcp+udp → quip-validator (substrate libp2p, validator profiles only)
+  └─ 30333/tcp+udp → quip-validator (substrate libp2p, bundled into every profile)
 ```
 
-Caddy is the single front door — there are no other host port publishes. The miner runs purely as an outbound substrate RPC client (no inbound QUIC, no inbound REST) and is reachable only over the compose network. Substrate RPC is at `/rpc`, faucet at `/api/faucet/*`, miner telemetry at `/api/v1/*`, dashboard SPA at `/`. All four are served on **both** `:443` and `:20049` in TLS mode, or on `:20049` HTTP-only in dev mode. `:80` is used for ACME HTTP-01 challenges and auto-redirects to `:443`.
+Caddy is the single front door for HTTP/WS traffic; libp2p binds `:30333` directly on the validator container. The miner runs purely as an outbound substrate RPC client (no inbound QUIC, no inbound REST) and is reachable only over the compose network. Substrate RPC is at `/rpc`, faucet at `/api/faucet/*`, miner telemetry at `/api/v1/*`, dashboard SPA at `/`. All four are served on **both** `:443` and `:20049` in TLS mode, or on `:20049` HTTP-only in dev mode. `:80` is used for ACME HTTP-01 challenges and auto-redirects to `:443`.
+
+**Inbound ports** every public deployment should open: `:20049` (Caddy — required for the dashboard/RPC/telemetry surface), `:30333/tcp+udp` (libp2p peer dials — strongly recommended so other validators can connect inbound and your node can be a useful peer), and `:80`+`:443` (Caddy TLS — only if you want HTTPS via HTTP-01 ACME). Without `:30333`, your validator still mines and gossips outbound through the bootnodes, but won't accept inbound peer dials — you become a leaf in the mesh rather than a participating peer.
+
+Verify your ports are open from the public internet via [`check.quip.network`](https://check.quip.network) — run the curls from the host itself; the service uses the caller's source IP so you can't misdirect it at a different target:
+
+```bash
+curl -sS https://check.quip.network/checkport?port=20049
+curl -sS https://check.quip.network/checkport?port=30333
+curl -sS https://check.quip.network/checkport?port=80    # only if using HTTP-01 ACME
+curl -sS https://check.quip.network/checkport?port=443   # only if using HTTPS
+```
+
+Each returns `{"reachable": true, …}` or `{"reachable": false, "error": "…"}`.
 
 ## Upgrading from v0.1
 
@@ -40,7 +53,16 @@ Your data is in bind mounts (`./data/`, `./dashboard-data/`) and named volumes (
 git pull origin v0.2
 ```
 
-Review `docker-compose.yml` and `env.example` against your local `.env` — there are new env vars (`QUIP_VALIDATOR_TAG`, `QUIP_FAUCET_TAG`, `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `SUBSTRATE_BOOTNODES`, `CERT_EMAIL`) you'll want to set before the first start.
+Review `docker-compose.yml` and `env.example` against your local `.env`:
+
+- **New env vars** you'll want to set before the first start: `QUIP_VALIDATOR_TAG`, `QUIP_FAUCET_TAG`, `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `SUBSTRATE_BOOTNODES`, `CERT_EMAIL`.
+- **Removed env vars** — delete these from your `.env` if present (they're no longer consumed by v0.2 and only clutter the file):
+  - `QUIP_NODE_URL` — superseded by `QUIP_VALIDATOR_RPC_URLS` (now drives both chain indexing and the miner REST surface; comma-separated list of substrate WS URLs).
+  - `QUIP_NODE_TOKEN` — removed; bearer-token access control moved out of the dashboard image into the deployment layer (reverse-proxy auth, network policy).
+- **Repointing for miner-only nodes**: if your `.env` had `QUIP_NODE_URL=https://cpu-1.nodes.quip.network` (or similar single-host), the v0.2 equivalent is `QUIP_VALIDATOR_RPC_URLS` pointing at the same host's substrate WS endpoint (comma-separated if you want failover across multiple validators):
+  ```
+  QUIP_VALIDATOR_RPC_URLS=wss://cpu-1.nodes.quip.network/rpc
+  ```
 
 ### 3. Convert `data/config.toml`
 
@@ -80,25 +102,22 @@ For HTTP-01, no extra config — just make sure `:80` is open and `CERT_EMAIL` i
 ### 5. Bring the v0.2 stack up
 
 ```bash
-# Miner only (CPU)
+# CPU miner + bundled local validator + dashboard + Caddy
 docker compose --profile cpu up -d
 
-# CUDA miner
+# CUDA miner + bundled local validator + dashboard + Caddy
 docker compose --profile cuda up -d
 
-# Validator + colocated CPU miner (most common)
-docker compose --profile validator-cpu up -d
-
-# Validator + faucet (dev only)
-docker compose --profile validator-cpu --profile faucet up -d
+# Layer in the faucet (dev only)
+docker compose --profile cpu --profile faucet up -d
 ```
 
-The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. Check it came up cleanly:
+Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. Check it came up cleanly:
 
 ```bash
-docker compose --profile validator-cpu ps
+docker compose --profile cpu ps
 docker compose logs -f cpu              # miner
-docker compose logs -f quip-validator   # validator (validator profiles)
+docker compose logs -f quip-validator   # validator
 ```
 
 Then visit the dashboard at `http://localhost:20049/` (dev) or `https://<your-hostname>/` (production).
@@ -173,25 +192,20 @@ Four primary profiles are available:
 
 | Profile | Includes | Notes |
 |---|---|---|
-| `cpu` | miner (CPU), dashboard, postgres, Caddy | Default. Uncomment `[qpu]` + `[dwave]` in `config.toml` for D-Wave. |
-| `cuda` | miner (CUDA), dashboard, postgres, Caddy | Requires NVIDIA GPU + Docker GPU runtime. |
-| `validator-cpu` | `cpu` services + `quip-validator` | Requires production `QUIP_HOSTNAME` (TLS-only `/rpc`). |
-| `validator-cuda` | `cuda` services + `quip-validator` | Requires production `QUIP_HOSTNAME`. |
+| `cpu` | miner (CPU), local validator, dashboard, postgres, Caddy | Default. Uncomment `[qpu]` + `[dwave]` in `config.toml` for D-Wave. |
+| `cuda` | miner (CUDA), local validator, dashboard, postgres, Caddy | Requires NVIDIA GPU + Docker GPU runtime. |
 
-The `faucet` profile layers additively on top of any validator profile:
+Every node bundles its own substrate validator — there's no separate validator-only or miner-only profile. The `faucet` profile layers additively for dev chains:
 
 ```bash
-# Miner only
+# CPU miner + local validator
 docker compose --profile cpu up -d
 
-# CUDA miner
+# CUDA miner + local validator
 docker compose --profile cuda up -d
 
-# Validator + colocated CPU miner
-docker compose --profile validator-cpu up -d
-
-# Validator + faucet
-docker compose --profile validator-cpu --profile faucet up -d
+# Add the faucet (dev only)
+docker compose --profile cpu --profile faucet up -d
 ```
 
 **Monitor your node at [http://localhost:20049/](http://localhost:20049/)** — or `https://<QUIP_HOSTNAME>/` (and `:20049`) when running on a remote machine with TLS.
@@ -210,29 +224,32 @@ Certs persist in the `quip-caddy-data` named volume across container recreations
 
 ### Dashboard
 
-The dashboard indexer polls the local node over the compose network (`http://quip-node:80`). The config templates ship with `rest_insecure_port = 80` enabled inside the node container, so this works out of the box. The node's REST is **not** exposed to the host directly — all external traffic goes through Caddy.
+The dashboard indexer polls the local validator over the compose network (`ws://quip-validator:9944`) for both chain state and the miner REST surface that Caddy fronts on the same host. The node's RPC is **not** exposed to the host directly — all external traffic goes through Caddy.
 
-To point the dashboard at a public full node instead of the local one, set `QUIP_NODE_URL` in `.env`:
+For miner-only nodes (no colocated validator), point the indexer at a public full node via `QUIP_VALIDATOR_RPC_URLS` in `.env`. The value is comma-separated; the indexer rotates through the list on failure:
 
 ```bash
-QUIP_NODE_URL=https://cpu-1.nodes.quip.network
+QUIP_VALIDATOR_RPC_URLS=wss://cpu-1.nodes.quip.network/rpc
 ```
 
 Telemetry persists in the `quip-pgdata` named volume, so it survives container recreations.
 
 ### Validator setup
 
-Running a validator means joining substrate consensus. Prerequisites:
+Every node bundles a local substrate validator, so just starting the `cpu` or `cuda` profile makes you a validator. What changes by deployment:
 
-- **Production `QUIP_HOSTNAME`** — validator profiles serve substrate RPC at `wss://<host>/rpc` and `wss://<host>:20049/rpc`. Both must be TLS, so a real DNS name is required.
-- **Inbound 30333/tcp and 30333/udp** reachable from the public internet for libp2p peering, in addition to 80/443/20049.
+- **Inbound `:20049`** (Caddy) — required for the dashboard/RPC surface to be reachable from the public internet.
+- **Inbound `:30333/tcp+udp`** (libp2p) — same priority as `:20049`. Lets other validators dial yours so you're a participating peer instead of a leaf. Mining works without it (outbound to bootnodes is enough), but your peer count stays in the single digits.
+- **TLS for the public RPC** is best-effort and Caddy-driven. Set `QUIP_HOSTNAME` to your real DNS name + `CERT_EMAIL`, open port 80 (HTTP-01) or wire DNS-01, and Caddy serves `wss://<host>/rpc` and `wss://<host>:20049/rpc`. Without those, the validator still runs locally and is reachable on the compose network (`ws://quip-validator:9944`) — only the public WSS endpoint is gated on the cert.
 - **Docker Compose v2.20+** for the `depends_on.required: false` flag used to make the validator a soft dependency of the miner. On older versions, remove that line from `docker-compose.yml` (miner will retry RPC connection on startup either way).
+
+After bringing the stack up, verify `:20049` and `:30333` are reachable from the public internet via [`check.quip.network`](https://check.quip.network) — see the [architecture section](#architecture) for the exact curl invocations.
 
 The validator boots against `chain-specs/quip-testnet.json` by default (see [Quip Testnet](#quip-testnet) below). For local development against the `quip-local` preset, set `QUIP_CHAIN_SPEC=./data/chain-spec.json` in `.env`.
 
 ```bash
 # 1. Start the stack — chain spec is already in place
-docker compose --profile validator-cpu up -d
+docker compose --profile cpu up -d
 
 # 3. Rotate session keys — substrate generates and stores them under the
 #    keystore in ./data/validator-data/chains/<id>/keystore/. The returned
@@ -265,7 +282,7 @@ The compose stack joins the canonical **Quip Testnet** by default. Identity:
 
 #### Joining
 
-A fresh `docker compose --profile validator-cpu up -d` boots straight onto Quip Testnet — the spec is committed at `chain-specs/quip-testnet.json`, the v0.2-preview validator image is pinned by default, and the bootnode addresses are embedded in the spec (no `SUBSTRATE_BOOTNODES` env var needed unless you're overriding for a private network).
+A fresh `docker compose --profile cpu up -d` boots straight onto Quip Testnet — the spec is committed at `chain-specs/quip-testnet.json`, the v0.2-preview validator image is pinned by default, and the bootnode addresses are embedded in the spec (no `SUBSTRATE_BOOTNODES` env var needed unless you're overriding for a private network).
 
 #### Verifying the spec
 
@@ -322,7 +339,7 @@ The `faucet` profile adds a small HTTP service that signs `Balances.transferKeep
 
 ```bash
 # Activate alongside any validator profile (one or both):
-docker compose --profile validator-cpu --profile faucet up -d
+docker compose --profile cpu --profile faucet up -d
 ```
 
 HTTP API (through Caddy):
@@ -380,7 +397,7 @@ docker compose --profile cpu up -d --force-recreate
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
 | Force pull and redeploy | `docker compose pull cpu && docker compose up -d cpu` |
-| Stop everything | `docker compose --profile validator-cpu --profile faucet down` |
+| Stop everything | `docker compose --profile cpu --profile faucet down` |
 
 ## Files
 

@@ -10,14 +10,13 @@ x-dashboard: &dashboard
   environment:
     DB_ADAPTER: postgres
     DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
-    QUIP_NODE_URL: ${QUIP_NODE_URL:-http://quip-miner:80}
-    QUIP_NODE_TOKEN: ${QUIP_NODE_TOKEN:-}
-    # Substrate WS RPC for the indexer's substrate + descriptor workers.
-    # Without this the indexer logs `substrate=disabled` and the chain
-    # tab (epochs, finalized head, validator authorship, hardware
-    # descriptor backfill) stays empty. Defaults to the colocated
-    # validator alias; miner-only nodes point it at a remote validator.
-    QUIP_VALIDATOR_RPC_URL: ${QUIP_VALIDATOR_RPC_URL:-ws://quip-validator:9944}
+    # Substrate WS RPC the dashboard indexer polls for both the chain tab
+    # (epochs, finalized head, validator authorship, hardware descriptor
+    # backfill) and the miner REST surface that Caddy fronts on the same
+    # host. Defaults to the colocated validator alias; miner-only nodes
+    # point it at remote validators (e.g. the testnet bootnodes —
+    # wss://bootnode-{1,2,3}.testnet.quip.network/rpc).
+    QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-validator:9944}
     PORT: "3001"
     RUN_SERVER: "true"
     RUN_INDEXER: "true"
@@ -39,7 +38,6 @@ services:
     restart: unless-stopped
     profiles:
       - cpu
-      - validator-cpu
     # Restrict visible CPUs so the upstream entrypoint's `num_cpus = $(nproc)`
     # autodetect writes a polite default instead of saturating the host. Linux
     # `nproc` reads sched_getaffinity(2), which honors the cgroup cpuset — so
@@ -74,7 +72,6 @@ services:
     restart: unless-stopped
     profiles:
       - cuda
-      - validator-cuda
     env_file:
       - .env
     environment:
@@ -104,9 +101,12 @@ services:
               count: all
               capabilities: [gpu]
 
-  # Substrate-based block-producing validator (quip-protocol-rs).
-  # Operators running this MUST set QUIP_HOSTNAME to a real DNS name so Caddy
-  # can front the RPC over TLS; localhost mode is not supported here.
+  # Substrate-based block-producing validator (quip-protocol-rs). Bundled
+  # into both the cpu and cuda profiles by default — every operator runs a
+  # local validator. TLS is best-effort: with a real QUIP_HOSTNAME + reachable
+  # port 80 (or DNS-01 creds), Caddy fronts the RPC at wss://<host>/rpc. With
+  # the dev default (QUIP_HOSTNAME=:20049) the validator still runs but is only
+  # reachable on the compose network and via http://localhost:20049/rpc.
   # Inbound 30333/tcp and 30333/udp must be reachable from the public internet
   # for libp2p peering.
   quip-validator:
@@ -115,8 +115,8 @@ services:
     container_name: quip-validator
     restart: unless-stopped
     profiles:
-      - validator-cpu
-      - validator-cuda
+      - cpu
+      - cuda
     env_file:
       - .env
     environment:
@@ -167,7 +167,7 @@ services:
       - --unsafe-force-node-key-generation
 
   # Optional faucet sidecar. Layered additively on top of a validator profile:
-  #   docker compose --profile validator-cpu --profile faucet up -d
+  #   docker compose --profile cpu --profile faucet up -d
   # See https://gitlab.com/quip.network/faucet for the upstream image.
   quip-faucet:
     image: registry.gitlab.com/quip.network/faucet:${QUIP_FAUCET_TAG:-latest}
@@ -202,8 +202,6 @@ services:
     profiles:
       - cpu
       - cuda
-      - validator-cpu
-      - validator-cuda
 
   postgres:
     image: postgres:16
@@ -212,8 +210,6 @@ services:
     profiles:
       - cpu
       - cuda
-      - validator-cpu
-      - validator-cuda
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-quip}
       POSTGRES_USER: ${POSTGRES_USER:-quip}
@@ -235,8 +231,6 @@ services:
     profiles:
       - cpu
       - cuda
-      - validator-cpu
-      - validator-cuda
     env_file:
       - .env
     environment:
