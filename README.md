@@ -1,6 +1,6 @@
 # Quip Network Node - Docker Deployment
 
-> **Upgrading from v0.1?** The miner config schema changed — `[global]` is now `[miner]`, P2P/TLS keys are gone (substrate validator owns p2p), and `validators` + `signer_key` are required. Run `make updateconfig` (or `make updateconfig-docker` on Python < 3.11) to convert your `data/config.toml` in place; the original files are moved to `data/.v0.1_backup/`. See [CHANGELOG.md](CHANGELOG.md) for the full schema diff.
+> **Upgrading from v0.1?** See [Upgrading from v0.1](#upgrading-from-v01) below — the miner config schema changed, container/image names changed, and the substrate validator now owns p2p. There's a one-time `make updateconfig` step plus a few docker compose differences worth scanning before you bring things up.
 
 Quick-start Docker Compose deployment for Quip Network nodes. Supports CPU and CUDA (GPU) mining, with an optional Substrate-based validator and faucet sidecar. Each profile brings up a Caddy reverse proxy, the telemetry dashboard, and a bundled Postgres backend — so operators get a single-URL monitoring UI with automatic TLS out of the box.
 
@@ -18,6 +18,100 @@ Internet
 ```
 
 Caddy is the single front door — there are no other host port publishes. The miner runs purely as an outbound substrate RPC client (no inbound QUIC, no inbound REST) and is reachable only over the compose network. Substrate RPC is at `/rpc`, faucet at `/api/faucet/*`, miner telemetry at `/api/v1/*`, dashboard SPA at `/`. All four are served on **both** `:443` and `:20049` in TLS mode, or on `:20049` HTTP-only in dev mode. `:80` is used for ACME HTTP-01 challenges and auto-redirects to `:443`.
+
+## Upgrading from v0.1
+
+The v0.2 stack replaces the v0.1 P2P mesh with a substrate validator + RPC-client miner. That changes the binary (`quip-node` → `quip-miner`), the image names (`quip-network-node-{cpu,cuda}` → `quip-miner-{cpu,cuda}`), the compose services (`qpu` collapsed into `cpu` + a `[qpu]` config section; new `quip-validator` and `quip-faucet` services), and the config schema (`[global]` → `[miner]`, P2P/TLS keys removed, `validators` + `signer_key` required). Full schema diff in [CHANGELOG.md](CHANGELOG.md).
+
+### 1. Stop and remove the v0.1 containers
+
+The v0.1 container names (`quip-cpu`, `quip-cuda`, `quip-qpu`, `quip-dashboard`, `quip-postgres`, `quip-caddy`) still exist in v0.2 except for `quip-qpu`, so a plain `docker compose down` from the new tree won't necessarily reach them if you've already pulled v0.2. Stop and remove them explicitly first — `|| true` makes this safe to copy/paste even if some containers don't exist on your host:
+
+```bash
+docker stop quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 2>/dev/null || true
+docker rm   quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 2>/dev/null || true
+```
+
+Your data is in bind mounts (`./data/`, `./dashboard-data/`) and named volumes (`quip-pgdata`, `quip-caddy-data`, `quip-caddy-config`), so removing containers is non-destructive.
+
+### 2. Pull the v0.2 repo
+
+```bash
+git pull origin v0.2
+```
+
+Review `docker-compose.yml` and `env.example` against your local `.env` — there are new env vars (`QUIP_VALIDATOR_TAG`, `QUIP_FAUCET_TAG`, `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `SUBSTRATE_BOOTNODES`, `CERT_EMAIL`) you'll want to set before the first start.
+
+### 3. Convert `data/config.toml`
+
+Pick one (both produce identical output):
+
+```bash
+# Native — needs Python 3.11+ on the host
+make updateconfig
+
+# Docker fallback — for Python < 3.11 (e.g. Ubuntu 22.04 ships 3.10)
+make updateconfig-docker
+
+# Or call the script directly
+python3 scripts/upgrade-config.py data
+```
+
+Defaults to `./data`; override with `DATA=/path/to/data`. The converter:
+- moves every entry in `data/` (including your old `config.toml`) into `data/.v0.1_backup/`
+- writes a fresh `data/config.toml` in v0.2 shape, carrying over `node_name`, `public_host`, `public_port`, `rest_host`, `rest_port`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
+- defaults `validators = ["ws://quip-validator:9944"]` for colocated validators (the most common topology); override later if you run miner-only or against a remote validator
+- defaults `signer_key = "/data/keystore.json"` — the entrypoint auto-generates the hybrid keystore on first start
+- warns loudly about dropped `[global].port` / `[global].listen` (semantics flipped from QUIC peer to telemetry REST — the v0.2 loader would silently alias these, but that risks exposing the REST API on what used to be the peer port)
+
+Idempotent: re-running on an already-converted dir exits with "nothing to do".
+
+### 4. Decide on the ACME challenge type
+
+Caddy auto-provisions a Let's Encrypt cert for `QUIP_HOSTNAME` in production mode. Two ways it can prove control of the DNS name:
+
+| Challenge | What you need | When to pick |
+|---|---|---|
+| **HTTP-01** (default) | Port **80** reachable from the public internet | Simplest. Works out of the box with `caddy:2-alpine`. Required if you can't or won't share DNS API credentials with the host. |
+| **DNS-01** | A custom Caddy image with your DNS provider plugin compiled in (`caddy-dns/cloudflare`, `caddy-dns/route53`, `caddy-dns/digitalocean`, …) **and** DNS-API credentials in `.env` | Required if your host can't bind `:80` (firewalled, port already taken, behind a NAT without port-forward). Also supports wildcard certs. |
+
+For HTTP-01, no extra config — just make sure `:80` is open and `CERT_EMAIL` is set in `.env`. For DNS-01, build a Caddy image with your provider's plugin (see [Caddy's DNS challenge docs](https://caddyserver.com/docs/automatic-https#dns-challenge)), swap the `image:` line for the `caddy` service in `docker-compose.yml`, and add the appropriate `tls { dns <provider> }` block in `caddy/Caddyfile`. The plumbing is out of scope for this repo because the credential surface is provider-specific.
+
+### 5. Bring the v0.2 stack up
+
+```bash
+# Miner only (CPU)
+docker compose --profile cpu up -d
+
+# CUDA miner
+docker compose --profile cuda up -d
+
+# Validator + colocated CPU miner (most common)
+docker compose --profile validator-cpu up -d
+
+# Validator + faucet (dev only)
+docker compose --profile validator-cpu --profile faucet up -d
+```
+
+The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. Check it came up cleanly:
+
+```bash
+docker compose --profile validator-cpu ps
+docker compose logs -f cpu              # miner
+docker compose logs -f quip-validator   # validator (validator profiles)
+```
+
+Then visit the dashboard at `http://localhost:20049/` (dev) or `https://<your-hostname>/` (production).
+
+### Rollback
+
+If you need to undo the conversion: restore the original `data/config.toml` from the backup and remove the v0.2 file.
+
+```bash
+cp data/.v0.1_backup/config.toml data/config.toml
+```
+
+The v0.1 containers can be re-created from a v0.1 checkout of this repo (`git checkout main` if `main` still points at the v0.1 line, or `git checkout <pre-v0.2-sha>`). Bind-mounted data survives across both stacks.
 
 ## Setup
 
@@ -108,9 +202,9 @@ docker compose --profile validator-cpu --profile faucet up -d
 
 With the default `QUIP_HOSTNAME=:20049`, Caddy serves HTTP on port 20049 with no TLS — good for local dev with the `cpu` / `cuda` profiles. Access the dashboard at `http://localhost:20049/`.
 
-For production, set `QUIP_HOSTNAME` to the comma-separated form (`example.com, example.com:20049`) and `CERT_EMAIL` to a valid address. Caddy provisions a Let's Encrypt cert via HTTP-01 on `:80`, serves HTTPS on `:443` and `:20049`, and redirects HTTP to HTTPS. Port 80 must be reachable from the internet during provisioning and every renewal.
+For production, set `QUIP_HOSTNAME` to the comma-separated form (`example.com, example.com:20049`) and `CERT_EMAIL` to a valid address. Caddy provisions a Let's Encrypt cert via HTTP-01 on `:80`, serves HTTPS on `:443` and `:20049`, and redirects HTTP to HTTPS. Port 80 must be reachable from the internet during provisioning and every renewal — if it isn't (firewalled host, port already taken, NAT without port-forward), see the [DNS-01 alternative](#4-decide-on-the-acme-challenge-type) in the upgrade flow.
 
-The default ACME issuer is **Let's Encrypt**, with **ZeroSSL** as an automatic fallback (built-in to Caddy 2.6+). To pin ZeroSSL as the primary issuer — useful if you want longer cert validity or have hit LE rate limits — uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials. For DNS-01 challenges or other CAs, edit `caddy/Caddyfile` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
+The default ACME issuer is **Let's Encrypt**, with **ZeroSSL** as an automatic fallback (built-in to Caddy 2.6+). To pin ZeroSSL as the primary issuer — useful if you want longer cert validity or have hit LE rate limits — uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
 
 Certs persist in the `quip-caddy-data` named volume across container recreations.
 

@@ -12,6 +12,8 @@ make updateconfig DATA=path/to/data    # defaults to ./data
 
 The converter is idempotent — re-running on an already-converted dir exits cleanly.
 
+The full operator runbook (stop v0.1 containers, pull v0.2, convert config, choose ACME challenge type, bring up the new stack) lives in [README.md → Upgrading from v0.1](README.md#upgrading-from-v01).
+
 #### Schema diff
 
 - **Renamed**: `[global]` → `[miner]`. The catch-all v0.1 section is now scoped to this miner's substrate connection (validator list, keystore, identification).
