@@ -14,3 +14,5 @@ data/genesis_block.json
 dashboard-data/
 nodes.json
 *.bak
+__pycache__/
+.pytest_cache/

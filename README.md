@@ -1,5 +1,7 @@
 # Quip Network Node - Docker Deployment
 
+> **Upgrading from v0.1?** The miner config schema changed — `[global]` is now `[miner]`, P2P/TLS keys are gone (substrate validator owns p2p), and `validators` + `signer_key` are required. Run `make updateconfig` (or `make updateconfig-docker` on Python < 3.11) to convert your `data/config.toml` in place; the original files are moved to `data/.v0.1_backup/`. See [CHANGELOG.md](CHANGELOG.md) for the full schema diff.
+
 Quick-start Docker Compose deployment for Quip Network nodes. Supports CPU and CUDA (GPU) mining, with an optional Substrate-based validator and faucet sidecar. Each profile brings up a Caddy reverse proxy, the telemetry dashboard, and a bundled Postgres backend — so operators get a single-URL monitoring UI with automatic TLS out of the box.
 
 ## Architecture

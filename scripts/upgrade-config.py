@@ -1,0 +1,318 @@
+"""Upgrade a v0.1 quip-node data/ directory to the v0.2 quip-miner schema.
+
+v0.1 ships a monolithic `[global]` table plus backend tables (`[cpu]`,
+`[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, ...). v0.2 renames `[global]` to
+`[miner]`, drops every P2P/transport key (substrate validator owns p2p
+now), promotes `public_host`/`public_port`/`log_level`/`node_log` into
+`[miner]`, and keeps the backend tables verbatim.
+
+Stdlib-only (Python 3.11+ tomllib for read, hand-rolled writer for emit)
+so this runs anywhere the operator already has python3 — and on Python
+3.10 hosts via `make upgrade-config-docker`.
+
+Behavior:
+  - Detects v0.1 by presence of [global], v0.2 by [miner]. Refuses to run
+    on ambiguous (both) or unrecognized (neither) configs.
+  - On v0.1 detection, moves every entry in DATA_DIR (except an existing
+    .v0.1_backup itself) into DATA_DIR/.v0.1_backup/, then writes a fresh
+    DATA_DIR/config.toml in v0.2 shape using values harvested from the
+    backed-up file.
+  - Refuses to clobber an existing .v0.1_backup/ — that signals the dir
+    has already been migrated.
+"""
+
+import argparse
+import shutil
+import sys
+import tomllib
+from pathlib import Path
+
+BACKUP_DIRNAME = ".v0.1_backup"
+
+# Backend tables preserved verbatim from v0.1 → v0.2 (semantics + key
+# inheritance unchanged in the v0.2 loader).
+PRESERVED_BACKEND_TABLES = frozenset({
+    "cpu", "gpu", "cuda", "nvidia", "metal", "modal",
+    "qpu", "dwave", "ibm", "braket", "pasqal", "ionq", "origin",
+})
+
+# v0.1 [global] keys that map directly into v0.2 [miner].
+PROMOTED_GLOBAL_KEYS = (
+    "node_name",
+    "public_host",
+    "public_port",
+    "rest_host",
+    "rest_port",
+    "log_level",
+    "node_log",
+)
+
+# v0.1 [global] keys we drop SILENTLY (no operator action needed; backup
+# retains the original value).
+SILENT_DROP_GLOBAL_KEYS = frozenset({
+    "secret", "genesis_config", "auto_mine", "peer",
+    "timeout", "heartbeat_interval", "heartbeat_timeout", "fanout",
+    "verify_tls", "ca_bundle",
+    "tls_cert_file", "tls_key_file",
+    "rest_tls_cert_file", "rest_tls_key_file",
+    "tofu", "trust_db",
+    "rest_insecure_port", "webroot", "http_log",
+    "telemetry_enabled", "telemetry_dir",
+})
+
+# v0.1 [global] keys we drop with a LOUD warning. v0.2 silently aliases
+# listen → rest_host and port → rest_port in the loader, but the
+# semantics flipped (QUIC peer → telemetry REST) so an operator with
+# port = 20049 would unintentionally expose the REST API on what used to
+# be a peer port. We refuse to alias and surface the choice instead.
+LOUD_DROP_GLOBAL_KEYS = frozenset({"listen", "port"})
+
+# Top-level v0.1 tables we drop entirely.
+DROPPED_TOP_TABLES = frozenset({"telemetry_api"})
+
+
+def _emit_string(s):
+    if any(c in s for c in '\n\r\t\\"'):
+        escaped = (s.replace("\\", "\\\\")
+                    .replace('"', '\\"')
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                    .replace("\t", "\\t"))
+        return f'"{escaped}"'
+    return f'"{s}"'
+
+
+def _emit_value(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        return repr(v)
+    if isinstance(v, str):
+        return _emit_string(v)
+    if isinstance(v, list):
+        return "[" + ", ".join(_emit_value(x) for x in v) + "]"
+    raise TypeError(f"unsupported TOML value type: {type(v).__name__}")
+
+
+def _emit_table(prefix, table, lines):
+    scalars = {k: v for k, v in table.items() if not isinstance(v, dict)}
+    subtables = {k: v for k, v in table.items() if isinstance(v, dict)}
+    # Emit header when there are scalars OR when this is a leaf marker
+    # (e.g. an empty [qpu] section signaling QPU-miner presence).
+    if scalars or not subtables:
+        lines.append(f"[{prefix}]")
+        for k, v in scalars.items():
+            lines.append(f"{k} = {_emit_value(v)}")
+        lines.append("")
+    for k, v in subtables.items():
+        _emit_table(f"{prefix}.{k}", v, lines)
+
+
+def _render_miner_section(harvested):
+    """Render the [miner] table from harvested v0.1 [global] values."""
+    out = []
+    out.append("# quip-miner v0.2 [miner] schema, written by scripts/upgrade-config.py.")
+    out.append("# See data/config.toml in the nodes.quip.network repo for the canonical")
+    out.append("# template with inline documentation for every key.")
+    out.append("")
+    out.append("[miner]")
+
+    validators = harvested.get("validators") or ["ws://quip-validator:9944"]
+    out.append("validators = [")
+    for url in validators:
+        out.append(f"    {_emit_string(url)},")
+    out.append("]")
+
+    out.append(f'signer_key = {_emit_string(harvested.get("signer_key", "/data/keystore.json"))}')
+
+    # rest_* always emitted so the operator sees the current setting.
+    out.append(f"rest_port = {_emit_value(harvested.get('rest_port', -1))}")
+    out.append(f'rest_host = {_emit_string(harvested.get("rest_host", "0.0.0.0"))}')
+
+    for key in ("node_name", "public_host", "public_port", "log_level", "node_log"):
+        if key in harvested:
+            out.append(f"{key} = {_emit_value(harvested[key])}")
+
+    out.append("")
+    return out
+
+
+def _render_config(parsed, warnings):
+    """Build the new config.toml content as a string.
+
+    Mutates `warnings` (list[str]) with operator-actionable notes that
+    the caller prints to stderr.
+    """
+    global_table = parsed.get("global", {})
+
+    harvested = {}
+    for key in PROMOTED_GLOBAL_KEYS:
+        if key in global_table:
+            harvested[key] = global_table[key]
+
+    for key in LOUD_DROP_GLOBAL_KEYS:
+        if key in global_table:
+            warnings.append(
+                f"dropping [global].{key}={global_table[key]!r}: v0.2 aliases this to "
+                f"rest_{'host' if key == 'listen' else 'port'} but semantics changed "
+                f"(was QUIC peer, now telemetry REST). Set [miner].rest_{'host' if key == 'listen' else 'port'} "
+                f"explicitly if you want the REST API on that interface."
+            )
+
+    if "auto_mine" in global_table and global_table["auto_mine"] is False:
+        warnings.append(
+            "[global].auto_mine=false in v0.1 disabled mining until peers connected; "
+            "v0.2 miners mine unconditionally once connected to a validator."
+        )
+
+    if "peer" in global_table:
+        warnings.append(
+            f"[global].peer had {len(global_table['peer'])} entries — v0.2 has no P2P "
+            "mesh. Set [miner].validators to your substrate validator WS URL(s)."
+        )
+
+    # Surface unknown [global] keys so we don't silently lose operator-tuned
+    # values we haven't catalogued.
+    known = (set(PROMOTED_GLOBAL_KEYS)
+             | SILENT_DROP_GLOBAL_KEYS
+             | LOUD_DROP_GLOBAL_KEYS)
+    for key in global_table:
+        if key not in known:
+            warnings.append(
+                f"unknown [global].{key} dropped (preserved in backup); review backup "
+                "if this was operator-tuned."
+            )
+
+    lines = _render_miner_section(harvested)
+
+    for table_name, table in parsed.items():
+        if table_name == "global":
+            continue
+        if table_name in DROPPED_TOP_TABLES:
+            warnings.append(
+                f"dropping [{table_name}] table — not in v0.2 schema (deployment-layer "
+                "concern now)."
+            )
+            continue
+        if table_name not in PRESERVED_BACKEND_TABLES:
+            warnings.append(
+                f"unknown top-level table [{table_name}] dropped (preserved in backup)."
+            )
+            continue
+        if table_name == "dwave" and "token" in table:
+            warnings.append(
+                "[dwave].token preserved verbatim. v0.2 convention prefers DWAVE_API_KEY "
+                "in the environment — consider moving the secret out of config.toml."
+            )
+        _emit_table(table_name, table, lines)
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _detect_schema(parsed, path):
+    has_global = "global" in parsed
+    has_miner = "miner" in parsed
+    if has_global and has_miner:
+        sys.stderr.write(
+            f"error: {path} has both [global] and [miner]; ambiguous schema. "
+            "Manual review required.\n"
+        )
+        sys.exit(2)
+    if not has_global and not has_miner:
+        sys.stderr.write(
+            f"error: {path} has neither [global] nor [miner]; not a recognizable "
+            "quip miner/node config.\n"
+        )
+        sys.exit(2)
+    return "v0.1" if has_global else "v0.2"
+
+
+def _backup(data_dir, dry_run):
+    backup = data_dir / BACKUP_DIRNAME
+    if backup.exists():
+        sys.stderr.write(
+            f"error: {backup} already exists; this dir looks already-migrated. "
+            "Remove or rename it to re-run.\n"
+        )
+        sys.exit(1)
+
+    entries = [p for p in data_dir.iterdir() if p.name != BACKUP_DIRNAME]
+    if dry_run:
+        print(f"[dry-run] would create {backup} and move into it:")
+        for p in entries:
+            print(f"  - {p.name}")
+        return backup
+
+    backup.mkdir()
+    for p in entries:
+        shutil.move(str(p), str(backup / p.name))
+    return backup
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "data_dir",
+        type=Path,
+        help="Operator's data/ directory (containing v0.1 config.toml).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned actions and the new config.toml to stdout; "
+        "don't touch the filesystem.",
+    )
+    args = parser.parse_args()
+
+    data_dir = args.data_dir
+    if not data_dir.is_dir():
+        sys.stderr.write(f"error: {data_dir} is not a directory.\n")
+        sys.exit(1)
+
+    config_path = data_dir / "config.toml"
+    if not config_path.is_file():
+        sys.stderr.write(f"error: {config_path} not found.\n")
+        sys.exit(1)
+
+    try:
+        with config_path.open("rb") as fh:
+            parsed = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        sys.stderr.write(f"error: failed to parse {config_path}: {exc}\n")
+        sys.exit(2)
+
+    schema = _detect_schema(parsed, config_path)
+    if schema == "v0.2":
+        print(f"{config_path} is already v0.2 ([miner] present). Nothing to do.")
+        sys.exit(0)
+
+    warnings = []
+    new_content = _render_config(parsed, warnings)
+
+    backup_dir = _backup(data_dir, args.dry_run)
+
+    if args.dry_run:
+        print(f"\n[dry-run] would write {config_path} with the following content:\n")
+        print(new_content)
+    else:
+        config_path.write_text(new_content)
+        print(f"backed up v0.1 config to {backup_dir}")
+        print(f"wrote v0.2 config to {config_path}")
+
+    for w in warnings:
+        sys.stderr.write(f"WARN: {w}\n")
+
+    print(
+        "\nReview the new config against the canonical v0.2 template at "
+        "data/config.toml in the nodes.quip.network repo for inline "
+        "documentation. Comments from your v0.1 file were not preserved."
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -8,12 +8,13 @@
 
 PROFILE          ?= validator-cpu
 SUDO_KEY         ?= //Alice
+DATA             ?= data
 COMPOSE          := docker compose
 COMPOSE_TESTNET  := docker compose -f docker-compose.yml
 
 .DEFAULT_GOAL := help
 
-.PHONY: help testnet localdev pull down logs clean clean-chain require-env
+.PHONY: help testnet localdev pull down logs clean clean-chain require-env updateconfig updateconfig-docker
 
 help:
 	@echo "nodes.quip.network — operator targets"
@@ -22,6 +23,11 @@ help:
 	@echo "  make localdev          Wipe chain, bring up self-contained dev stack"
 	@echo "                         (validator on --chain=dev, faucet, seeded topology,"
 	@echo "                          registered miner, dashboard, caddy)"
+	@echo "  make updateconfig      Convert a v0.1 data/config.toml to the v0.2 [miner]"
+	@echo "                         schema (backs up originals to data/.v0.1_backup/)."
+	@echo "                         Override the dir with DATA=/path/to/data."
+	@echo "  make updateconfig-docker  Same as above but inside python:3.12-alpine"
+	@echo "                            (use when the host has Python < 3.11)."
 	@echo "  make pull              Pull images for PROFILE"
 	@echo "  make down              Tear down both profile sets"
 	@echo "  make logs              Tail validator + miner logs"
@@ -31,6 +37,7 @@ help:
 	@echo "Variables (override on cmdline):"
 	@echo "  PROFILE=$(PROFILE)         compose profile (validator-cpu | validator-cuda)"
 	@echo "  SUDO_KEY=$(SUDO_KEY)       dev URI used for localdev seeding"
+	@echo "  DATA=$(DATA)               data dir converted by updateconfig"
 
 require-env:
 	@test -f .env || { \
@@ -74,6 +81,26 @@ localdev: require-env down clean-chain
 	@echo "  miner REST (v1)      : http://localhost:20049/api/v1/"
 	@echo "  faucet (POST)        : http://localhost:20049/api/faucet/request"
 	@echo "  substrate RPC        : http://localhost:20049/rpc  (HTTP + WS)"
+
+# v0.1 → v0.2 config converter. Renames [global] → [miner], drops P2P/TLS
+# keys that no longer have a consumer (substrate validator owns p2p now),
+# and preserves the backend tables ([cpu], [gpu], [cuda.N], [qpu], [dwave],
+# ...) verbatim. The original data/ contents are moved into
+# data/.v0.1_backup/ so nothing is lost. Idempotent on already-v0.2 dirs.
+updateconfig:
+	@test -d "$(DATA)" || { echo "error: $(DATA) is not a directory. Override with DATA=path/to/data."; exit 1; }
+	python3 scripts/upgrade-config.py "$(DATA)"
+
+# Docker fallback for hosts on Python < 3.11 (e.g. Ubuntu 22.04, which ships
+# 3.10 and so doesn't have stdlib `tomllib`). python:3.12-alpine is ~20MB
+# and ships tomllib — no pip install needed because the script is stdlib-only.
+updateconfig-docker:
+	@test -d "$(DATA)" || { echo "error: $(DATA) is not a directory. Override with DATA=path/to/data."; exit 1; }
+	docker run --rm \
+	    -v "$(abspath $(DATA)):/data" \
+	    -v "$(CURDIR)/scripts/upgrade-config.py:/upgrade-config.py:ro" \
+	    python:3.12-alpine \
+	    python3 /upgrade-config.py /data
 
 pull: require-env
 	$(COMPOSE) --profile $(PROFILE) pull
