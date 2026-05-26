@@ -66,6 +66,14 @@ Review `docker-compose.yml` and `env.example` against your local `.env`:
 
 ### 3. Convert `data/config.toml`
 
+> ⚠️ **First, make sure your shell user can move every file in `data/`.** The converter moves the v0.1 contents into `data/.v0.1_backup/` and will fail with a `PermissionError` if any file is owned by a different user (commonly the case if your v0.1 node ran the container as root). Run this once before the converter:
+>
+> ```bash
+> sudo chown -R "$(id -u):$(id -g)" data/
+> ```
+>
+> Skip if your `data/` is already owned by your shell user (e.g., you've been running v0.1 with `PUID=$(id -u)`).
+
 Pick one (both produce identical output):
 
 ```bash
@@ -82,7 +90,7 @@ python3 scripts/upgrade-config.py data
 Defaults to `./data`; override with `DATA=/path/to/data`. The converter:
 - moves every entry in `data/` (including your old `config.toml`) into `data/.v0.1_backup/`
 - writes a fresh `data/config.toml` in v0.2 shape, carrying over `node_name`, `public_host`, `public_port`, `rest_host`, `rest_port`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
-- defaults `validators = ["ws://quip-validator:9944"]` for colocated validators (the most common topology); override later if you run miner-only or against a remote validator
+- defaults `validators = ["ws://quip-validator:9944"]` — the local bundled validator. It peers with the testnet bootnodes via libp2p on `:30333`, so this entry is correct out of the box and shouldn't be edited
 - defaults `signer_key = "/data/keystore.json"` — the entrypoint auto-generates the hybrid keystore on first start
 - warns loudly about dropped `[global].port` / `[global].listen` (semantics flipped from QUIC peer to telemetry REST — the v0.2 loader would silently alias these, but that risks exposing the REST API on what used to be the peer port)
 
@@ -149,10 +157,10 @@ cp data/config.cuda.toml data/config.toml
 ### 2. Configure the node
 
 Edit `data/config.toml`:
-- Set `secret` to a unique value for your node's identity
 - Adjust `node_name` for telemetry display
-- Override the `validators` list if you're co-locating a validator (use `ws://quip-validator:9944`) or connecting to a non-default network
 - For QPU (D-Wave): uncomment the `[qpu]` and `[dwave]` sections at the bottom of `config.cpu.toml`. Solver and budget are pre-set for Advantage2.
+
+`[miner].validators` defaults to `ws://quip-validator:9944` — the bundled local validator. Leave it alone; it peers with the canonical testnet bootnodes via libp2p (see the chain spec's `bootNodes`).
 
 ### 3. Configure credentials
 

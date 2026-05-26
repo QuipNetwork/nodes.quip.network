@@ -127,6 +127,19 @@ def test_idempotence_on_already_v02(tmp_path):
     assert sorted(p.name for p in data_dir.iterdir()) == before
 
 
+def test_readonly_data_dir_emits_chown_hint(tmp_path):
+    data_dir = _copy_fixture("cpu", tmp_path)
+    original_mode = data_dir.stat().st_mode
+    data_dir.chmod(0o555)  # r-x — no write
+    try:
+        result = _run(data_dir)
+    finally:
+        data_dir.chmod(original_mode)
+    assert result.returncode == 1, result.stderr
+    assert "not writable" in result.stderr
+    assert "chown -R" in result.stderr
+
+
 def test_backup_collision_refuses(tmp_path):
     data_dir = _copy_fixture("cpu", tmp_path)
     (data_dir / ".v0.1_backup").mkdir()

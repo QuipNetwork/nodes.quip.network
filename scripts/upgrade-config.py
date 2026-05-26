@@ -22,6 +22,7 @@ Behavior:
 """
 
 import argparse
+import os
 import shutil
 import sys
 import tomllib
@@ -229,6 +230,25 @@ def _detect_schema(parsed, path):
     return "v0.1" if has_global else "v0.2"
 
 
+def _preflight_writable(data_dir):
+    """Verify the calling user can mkdir + move within data_dir.
+
+    Catches the common v0.1 deployment case where data/ is root-owned (from a
+    container that ran as root pre-PUID), but the operator now runs the
+    converter under their shell user. Without this check `shutil.move` raises
+    a PermissionError mid-loop, potentially leaving data/ half-backed-up.
+    """
+    if not os.access(data_dir, os.W_OK | os.X_OK):
+        sys.stderr.write(
+            f"error: {data_dir} is not writable by uid={os.getuid()}.\n"
+            f"  The converter needs to create {data_dir}/{BACKUP_DIRNAME}/ and\n"
+            f"  move every existing entry into it. Fix ownership first:\n"
+            f"    sudo chown -R \"$(id -u):$(id -g)\" {data_dir}\n"
+            f"  Then re-run.\n"
+        )
+        sys.exit(1)
+
+
 def _backup(data_dir, dry_run):
     backup = data_dir / BACKUP_DIRNAME
     if backup.exists():
@@ -237,6 +257,9 @@ def _backup(data_dir, dry_run):
             "Remove or rename it to re-run.\n"
         )
         sys.exit(1)
+
+    if not dry_run:
+        _preflight_writable(data_dir)
 
     entries = [p for p in data_dir.iterdir() if p.name != BACKUP_DIRNAME]
     if dry_run:
@@ -247,7 +270,16 @@ def _backup(data_dir, dry_run):
 
     backup.mkdir()
     for p in entries:
-        shutil.move(str(p), str(backup / p.name))
+        try:
+            shutil.move(str(p), str(backup / p.name))
+        except PermissionError as exc:
+            sys.stderr.write(
+                f"error: can't move {p} into {backup}: {exc}\n"
+                f"  Fix ownership first:\n"
+                f"    sudo chown -R \"$(id -u):$(id -g)\" {data_dir}\n"
+                f"  Then `mv {backup}/* {data_dir}/`, rmdir {backup}, and re-run.\n"
+            )
+            sys.exit(1)
     return backup
 
 
