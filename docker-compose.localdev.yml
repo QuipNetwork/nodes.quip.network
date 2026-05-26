@@ -64,6 +64,18 @@ services:
     environment:
       QUIP_FAUCET_URL: http://quip-faucet:8087
 
+  # Point the bootstrap sidecar at the colocated dev faucet too — otherwise
+  # it'd try to hit the public testnet faucet from inside the dev chain
+  # (wrong chain, won't fund).
+  quip-bootstrap:
+    environment:
+      QUIP_FAUCET_URL: http://quip-faucet:8087
+    depends_on:
+      quip-validator:
+        condition: service_started
+      quip-faucet:
+        condition: service_started
+
   quip-faucet:
     profiles:
       # Pull the faucet into the miner profiles so a single

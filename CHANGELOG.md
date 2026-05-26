@@ -6,6 +6,12 @@
 
 `QUIP_FAUCET_URL` now defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`. On a fresh `make testnet` (or `docker compose --profile cpu up -d`) the miner entrypoint generates the keystore, calls the testnet faucet to register the new account on-chain and fund it, and starts mining — no manual `quip-miner bootstrap` step required. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out if you pre-fund the account yourself. `docker-compose.override.yml` (used by `make localdev`) flips this to the colocated dev faucet, so localdev continues to use `//Alice` via the bundled `quip-faucet` sidecar.
 
+### Auto-bootstrap miner on first start
+
+Added `quip-bootstrap` as a one-shot init container in the `cpu` / `cuda` profiles. It runs `quip-miner bootstrap` against the local validator + the configured faucet, with a 60-attempt × 10s retry loop. `cpu` and `cuda` declare `depends_on.quip-bootstrap.condition: service_completed_successfully`, so the miner waits for chain registration before starting — eliminating the `RuntimeError: signer account ... is not in QuantumPow.Miners — run 'quip-miner bootstrap' first` crash loop operators previously hit on fresh keystores.
+
+Idempotent. Re-runs on subsequent `up -d` invocations are no-ops once the account is registered. `make localdev` drops its previous explicit bootstrap step (the sidecar handles it) but keeps the topology-seeding step, since seeding still has to happen before bootstrap can succeed.
+
 ### `docker-compose.override.yml` → `docker-compose.localdev.yml` (opt-in)
 
 The local-dev chain override was renamed off the magic `docker-compose.override.yml` filename so that plain `docker compose --profile cpu up -d` defaults to the live Quip Testnet instead of silently flipping the validator to `--chain=dev` via auto-loaded override.
