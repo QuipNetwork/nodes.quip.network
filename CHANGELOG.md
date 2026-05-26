@@ -6,6 +6,19 @@
 
 `QUIP_FAUCET_URL` now defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`. On a fresh `make testnet` (or `docker compose --profile cpu up -d`) the miner entrypoint generates the keystore, calls the testnet faucet to register the new account on-chain and fund it, and starts mining — no manual `quip-miner bootstrap` step required. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out if you pre-fund the account yourself. `docker-compose.override.yml` (used by `make localdev`) flips this to the colocated dev faucet, so localdev continues to use `//Alice` via the bundled `quip-faucet` sidecar.
 
+### `docker-compose.override.yml` → `docker-compose.localdev.yml` (opt-in)
+
+The local-dev chain override was renamed off the magic `docker-compose.override.yml` filename so that plain `docker compose --profile cpu up -d` defaults to the live Quip Testnet instead of silently flipping the validator to `--chain=dev` via auto-loaded override.
+
+**Previously**: any `docker compose ...` invocation auto-loaded the override and put the validator on `--chain=dev` (Alice as sole authority, no peers, no registered topology). Operators following README invocations like `docker compose --profile cpu up -d` ended up on dev chain when they meant testnet — visible only as "chain has no registered topology" errors from the miner.
+
+**Now**:
+- `docker compose --profile cpu up -d` → testnet (correct out of the box)
+- `make localdev` → dev chain (wraps `docker compose -f docker-compose.yml -f docker-compose.localdev.yml`)
+- `docker compose -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d` → dev chain (explicit form)
+
+Existing operators with `docker-compose.override.yml` on disk should `git pull` and either delete the leftover file (it's now removed from the repo, but `git pull` won't delete untracked working-copy artifacts) or accept that it'll keep overriding their commands until they remove it manually. `make testnet` continues to bypass any override because it explicitly passes `-f docker-compose.yml`.
+
 ### Compose profile collapse
 
 The `validator-cpu` and `validator-cuda` profiles are gone. The `cpu` and `cuda` profiles now bundle the substrate validator + dashboard + Caddy by default, so every operator runs a local validator without needing to opt in. Effects:

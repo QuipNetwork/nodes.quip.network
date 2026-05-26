@@ -198,25 +198,34 @@ Idempotent. Writes `/etc/sysctl.d/99-quip.conf` and runs `sysctl --system`. Need
 
 ### 5. Start
 
-Four primary profiles are available:
+Two primary profiles are available. Plain `docker compose ...` always boots the **live Quip Testnet** — the dev-chain override is opt-in (see [Local dev chain](#local-dev-chain) below).
 
 | Profile | Includes | Notes |
 |---|---|---|
 | `cpu` | miner (CPU), local validator, dashboard, postgres, Caddy | Default. Uncomment `[qpu]` + `[dwave]` in `config.toml` for D-Wave. |
 | `cuda` | miner (CUDA), local validator, dashboard, postgres, Caddy | Requires NVIDIA GPU + Docker GPU runtime. |
 
-Every node bundles its own substrate validator — there's no separate validator-only or miner-only profile. The `faucet` profile layers additively for dev chains:
+Every node bundles its own substrate validator — there's no separate validator-only or miner-only profile.
 
 ```bash
-# CPU miner + local validator
+# CPU miner + local validator (testnet)
 docker compose --profile cpu up -d
 
-# CUDA miner + local validator
+# CUDA miner + local validator (testnet)
 docker compose --profile cuda up -d
-
-# Add the faucet (dev only)
-docker compose --profile cpu --profile faucet up -d
 ```
+
+#### Local dev chain
+
+For experimentation without joining the testnet — `//Alice` as the sole authority + sudo + faucet funder. Two ways:
+
+```bash
+make localdev                           # full flow: wipe + start + seed topology + bootstrap miner
+# or
+docker compose -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d
+```
+
+The opt-in `docker-compose.localdev.yml` swaps the validator command to `--chain=dev`, pulls `quip-faucet` into the `cpu`/`cuda` profiles, and points the miner's `QUIP_FAUCET_URL` at the local faucet. **It is not auto-loaded** — the filename was deliberately moved off the magic `docker-compose.override.yml` to keep plain `docker compose` invocations on the testnet path. If you previously relied on the override auto-applying, switch to `make localdev` or pass the explicit `-f` flags.
 
 **Monitor your node at [http://localhost:20049/](http://localhost:20049/)** — or `https://<QUIP_HOSTNAME>/` (and `:20049`) when running on a remote machine with TLS.
 

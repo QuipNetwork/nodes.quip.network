@@ -9,8 +9,12 @@
 PROFILE          ?= cpu
 SUDO_KEY         ?= //Alice
 DATA             ?= data
+# Plain `docker compose ...` defaults to live Quip Testnet — only
+# docker-compose.yml is auto-loaded now that the localdev override was
+# renamed off the magic `docker-compose.override.yml` filename.
 COMPOSE          := docker compose
-COMPOSE_TESTNET  := docker compose -f docker-compose.yml
+# Opt-in stack with the dev-chain override layered on top.
+COMPOSE_LOCALDEV := docker compose -f docker-compose.yml -f docker-compose.localdev.yml
 
 .DEFAULT_GOAL := help
 
@@ -47,33 +51,34 @@ require-env:
 	    exit 1; \
 	}
 
-# Live Quip Testnet. Bypasses docker-compose.override.yml so the validator boots
-# against chain-specs/quip-testnet.json instead of substrate's `dev` preset.
+# Live Quip Testnet. Plain `docker compose` is testnet now (the localdev
+# override is opt-in via -f docker-compose.localdev.yml, not auto-loaded).
 testnet: require-env
-	$(COMPOSE_TESTNET) --profile $(PROFILE) pull
-	$(COMPOSE_TESTNET) --profile $(PROFILE) up -d
+	$(COMPOSE) --profile $(PROFILE) pull
+	$(COMPOSE) --profile $(PROFILE) up -d
 	@echo ""
 	@echo "testnet stack up. tail logs: make logs"
 
-# Self-contained dev chain. Relies on docker-compose.override.yml flipping the
-# validator to --chain=dev and pulling quip-faucet into the validator profile.
-# Order matters: validator+faucet must produce blocks before sudo seeding;
-# seeding must complete before the miner bootstraps (so DefaultTopology + the
-# difficulty are live when the miner queries them).
+# Self-contained dev chain. Layers docker-compose.localdev.yml on top of the
+# base docker-compose.yml to flip the validator to --chain=dev and pull
+# quip-faucet into the cpu/cuda profiles. Order matters: validator+faucet
+# must produce blocks before sudo seeding; seeding must complete before the
+# miner bootstraps (so DefaultTopology + the difficulty are live when the
+# miner queries them).
 localdev: require-env down clean-chain
-	$(COMPOSE) --profile $(PROFILE) pull
-	$(COMPOSE) --profile $(PROFILE) up -d quip-validator quip-faucet
+	$(COMPOSE_LOCALDEV) --profile $(PROFILE) pull
+	$(COMPOSE_LOCALDEV) --profile $(PROFILE) up -d quip-validator quip-faucet
 	@echo "waiting for validator to produce blocks..."
 	@sleep 12
-	$(COMPOSE) --profile $(PROFILE) run --rm \
+	$(COMPOSE_LOCALDEV) --profile $(PROFILE) run --rm \
 	    -v "$(CURDIR)/scripts/seed-advantage2-topology.py:/seed.py:ro" \
 	    --entrypoint python3 cpu /seed.py --sudo-key $(SUDO_KEY)
-	$(COMPOSE) --profile $(PROFILE) run --rm \
+	$(COMPOSE_LOCALDEV) --profile $(PROFILE) run --rm \
 	    --entrypoint quip-miner cpu \
 	    bootstrap --validator ws://quip-validator:9944 \
 	    --signer-key /data/keystore.json \
 	    --faucet-url http://quip-faucet:8087
-	$(COMPOSE) --profile $(PROFILE) up -d
+	$(COMPOSE_LOCALDEV) --profile $(PROFILE) up -d
 	@echo ""
 	@echo "localdev stack up. tail logs: make logs"
 	@echo ""
@@ -105,8 +110,11 @@ updateconfig-docker:
 pull: require-env
 	$(COMPOSE) --profile $(PROFILE) pull
 
+# Use the localdev compose set for down so it reaches the dev-chain
+# faucet (which lives in docker-compose.localdev.yml). Harmless on hosts
+# that only ran `make testnet` — compose ignores services it can't see.
 down:
-	$(COMPOSE) --profile $(PROFILE) --profile faucet down
+	$(COMPOSE_LOCALDEV) --profile $(PROFILE) --profile faucet down
 
 logs:
 	$(COMPOSE) logs -f --tail=50 quip-validator cpu cuda
