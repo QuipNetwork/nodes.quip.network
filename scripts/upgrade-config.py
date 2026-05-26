@@ -38,15 +38,23 @@ PRESERVED_BACKEND_TABLES = frozenset({
 })
 
 # v0.1 [global] keys that map directly into v0.2 [miner].
+# rest_port is intentionally NOT in this list — see CADDY_PROXY_REST_PORT below.
 PROMOTED_GLOBAL_KEYS = (
     "node_name",
     "public_host",
     "public_port",
     "rest_host",
-    "rest_port",
     "log_level",
     "node_log",
 )
+
+# v0.2 Caddy fronts the miner's REST API and proxies /api/v1/* to
+# quip-miner:80. The miner's telemetry process MUST bind :80 internally
+# for the dashboard indexer + dashboard UI to reach it. v0.1 deployments
+# commonly used 443 (miner-terminated TLS) or other ports, so we force
+# the v0.2 convention regardless of what the v0.1 config said, and emit
+# a warning when overriding.
+CADDY_PROXY_REST_PORT = 80
 
 # v0.1 [global] keys we drop SILENTLY (no operator action needed; backup
 # retains the original value).
@@ -128,8 +136,10 @@ def _render_miner_section(harvested):
 
     out.append(f'signer_key = {_emit_string(harvested.get("signer_key", "/data/keystore.json"))}')
 
-    # rest_* always emitted so the operator sees the current setting.
-    out.append(f"rest_port = {_emit_value(harvested.get('rest_port', -1))}")
+    # rest_port is forced to the v0.2 Caddy-proxy convention regardless of
+    # the v0.1 value; see _render_config for the warning emitted when this
+    # overrides a non-80 v0.1 setting.
+    out.append(f"rest_port = {CADDY_PROXY_REST_PORT}")
     out.append(f'rest_host = {_emit_string(harvested.get("rest_host", "0.0.0.0"))}')
 
     for key in ("node_name", "public_host", "public_port", "log_level", "node_log"):
@@ -174,9 +184,19 @@ def _render_config(parsed, warnings):
             "mesh. Set [miner].validators to your substrate validator WS URL(s)."
         )
 
+    if "rest_port" in global_table and global_table["rest_port"] != CADDY_PROXY_REST_PORT:
+        warnings.append(
+            f"forcing [miner].rest_port to {CADDY_PROXY_REST_PORT} (v0.2 Caddy proxies "
+            f"/api/v1/* to quip-miner:{CADDY_PROXY_REST_PORT}); your v0.1 [global]."
+            f"rest_port={global_table['rest_port']!r} was dropped because the miner no "
+            "longer terminates TLS itself — Caddy does. Override QUIP_REST_PORT in .env "
+            "if you genuinely need a different internal port."
+        )
+
     # Surface unknown [global] keys so we don't silently lose operator-tuned
     # values we haven't catalogued.
     known = (set(PROMOTED_GLOBAL_KEYS)
+             | {"rest_port"}
              | SILENT_DROP_GLOBAL_KEYS
              | LOUD_DROP_GLOBAL_KEYS)
     for key in global_table:

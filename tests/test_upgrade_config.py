@@ -64,7 +64,20 @@ def test_conversion_produces_valid_v02_config(fixture, tmp_path):
     assert parsed["miner"]["validators"] == ["ws://quip-validator:9944"]
     assert parsed["miner"]["signer_key"] == "/data/keystore.json"
     assert "rest_host" in parsed["miner"]
-    assert "rest_port" in parsed["miner"]
+    assert parsed["miner"]["rest_port"] == 80
+
+
+def test_rest_port_forced_to_caddy_proxy_port(tmp_path):
+    """v0.1 deployments with rest_port=443 (miner-terminated TLS) get
+    forced to 80 in v0.2 since Caddy now proxies /api/v1/* to
+    quip-miner:80. Leaving it at 443 produces 502s from Caddy → dashboard
+    indexer can't read miner telemetry."""
+    data_dir = _copy_fixture("qpu", tmp_path)  # qpu fixture has rest_port = 443
+    result = _run(data_dir)
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["miner"]["rest_port"] == 80
+    assert "forcing [miner].rest_port to 80" in result.stderr
+    assert "rest_port=443" in result.stderr
 
 
 def test_node_name_preserved(tmp_path):
