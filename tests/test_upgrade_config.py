@@ -211,3 +211,101 @@ def test_double_run_after_migration_is_idempotent(tmp_path):
     second = _run(data_dir)
     assert second.returncode == 0
     assert "already v0.2" in second.stdout
+
+
+# -- .env migration --------------------------------------------------------
+
+
+def _stale_env_content():
+    return (
+        "QUIP_HOSTNAME=qpu-1.nodes.quip.network\n"
+        "CERT_EMAIL=ops@example.com\n"
+        "\n"
+        "# Quip node URL the indexer polls.\n"
+        "#   QUIP_NODE_URL=https://qpu-1.nodes.quip.network\n"
+        "# QUIP_NODE_URL=http://quip-node:80\n"
+        "# QUIP_NODE_TOKEN=\n"
+        "\n"
+        "DWAVE_API_KEY=fake-token-xxx\n"
+    )
+
+
+def test_env_migration_drops_v01_keys_and_adds_v02_block(tmp_path):
+    data_dir = _copy_fixture("cpu", tmp_path)
+    env_path = data_dir.parent / ".env"
+    env_path.write_text(_stale_env_content())
+
+    result = _run(data_dir)
+    assert result.returncode == 0
+    assert "migrated .env" in result.stderr
+    assert "QUIP_NODE_URL" in result.stderr
+    assert "QUIP_NODE_TOKEN" in result.stderr
+
+    backup = data_dir.parent / ".env.v0.1_backup"
+    assert backup.is_file()
+    assert backup.read_text() == _stale_env_content()
+
+    migrated = env_path.read_text()
+    assert "QUIP_NODE_URL" not in migrated
+    assert "QUIP_NODE_TOKEN" not in migrated
+    assert "QUIP_HOSTNAME=qpu-1.nodes.quip.network" in migrated
+    assert "DWAVE_API_KEY=fake-token-xxx" in migrated
+    assert "QUIP_VALIDATOR_RPC_URLS" in migrated
+
+
+def test_env_migration_skipped_when_already_migrated(tmp_path):
+    data_dir = _copy_fixture("cpu", tmp_path)
+    env_path = data_dir.parent / ".env"
+    env_path.write_text("QUIP_HOSTNAME=x\nQUIP_VALIDATOR_RPC_URLS=ws://x:9944\n")
+
+    result = _run(data_dir)
+    assert result.returncode == 0
+    backup = data_dir.parent / ".env.v0.1_backup"
+    assert not backup.exists()
+    assert env_path.read_text() == "QUIP_HOSTNAME=x\nQUIP_VALIDATOR_RPC_URLS=ws://x:9944\n"
+
+
+def test_env_migration_refuses_when_backup_exists(tmp_path):
+    data_dir = _copy_fixture("cpu", tmp_path)
+    env_path = data_dir.parent / ".env"
+    env_path.write_text(_stale_env_content())
+    (data_dir.parent / ".env.v0.1_backup").write_text("pre-existing backup\n")
+
+    result = _run(data_dir)
+    assert result.returncode == 0
+    assert "skipping .env migration" in result.stderr
+    assert "QUIP_NODE_URL" in env_path.read_text()
+
+
+def test_env_migration_no_op_when_no_env_present(tmp_path):
+    data_dir = _copy_fixture("cpu", tmp_path)
+    # No .env created.
+    result = _run(data_dir)
+    assert result.returncode == 0
+    assert "migrated .env" not in result.stderr
+    assert not (data_dir.parent / ".env.v0.1_backup").exists()
+
+
+def test_env_migration_can_be_opted_out(tmp_path):
+    data_dir = _copy_fixture("cpu", tmp_path)
+    env_path = data_dir.parent / ".env"
+    env_path.write_text(_stale_env_content())
+
+    result = _run(data_dir, "--no-env-file")
+    assert result.returncode == 0
+    assert "migrated .env" not in result.stderr
+    assert "QUIP_NODE_URL" in env_path.read_text()
+    assert not (data_dir.parent / ".env.v0.1_backup").exists()
+
+
+def test_env_migration_dry_run_leaves_fs_untouched(tmp_path):
+    data_dir = _copy_fixture("cpu", tmp_path)
+    env_path = data_dir.parent / ".env"
+    original = _stale_env_content()
+    env_path.write_text(original)
+
+    result = _run(data_dir, "--dry-run")
+    assert result.returncode == 0
+    assert "[dry-run] would back up" in result.stderr
+    assert env_path.read_text() == original
+    assert not (data_dir.parent / ".env.v0.1_backup").exists()

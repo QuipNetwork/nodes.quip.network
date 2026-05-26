@@ -89,10 +89,12 @@ python3 scripts/upgrade-config.py data
 
 Defaults to `./data`; override with `DATA=/path/to/data`. The converter:
 - moves every entry in `data/` (including your old `config.toml`) into `data/.v0.1_backup/`
-- writes a fresh `data/config.toml` in v0.2 shape, carrying over `node_name`, `public_host`, `public_port`, `rest_host`, `rest_port`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
+- writes a fresh `data/config.toml` in v0.2 shape, carrying over `node_name`, `public_host`, `public_port`, `rest_host`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
+- forces `rest_port = 80` (v0.2 Caddy proxies `/api/v1/*` to `quip-miner:80`; v0.1 deployments using miner-terminated TLS often had `rest_port = 443`, which would leave Caddy's upstream unreachable)
 - defaults `validators = ["ws://quip-validator:9944"]` — the local bundled validator. It peers with the testnet bootnodes via libp2p on `:30333`, so this entry is correct out of the box and shouldn't be edited
 - defaults `signer_key = "/data/keystore.json"` — the entrypoint auto-generates the hybrid keystore on first start
 - warns loudly about dropped `[global].port` / `[global].listen` (semantics flipped from QUIC peer to telemetry REST — the v0.2 loader would silently alias these, but that risks exposing the REST API on what used to be the peer port)
+- migrates `.env` alongside (sibling of `data/`): backs up the current file to `.env.v0.1_backup`, drops stale `QUIP_NODE_URL` / `QUIP_NODE_TOKEN` lines (commented or uncommented), and appends a commented `QUIP_VALIDATOR_RPC_URLS` placeholder. Use `--no-env-file` (or `make updateconfig DATA=data` with the env override unset) to skip the `.env` step.
 
 Idempotent: re-running on an already-converted dir exits with "nothing to do".
 

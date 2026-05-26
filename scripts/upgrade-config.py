@@ -23,10 +23,31 @@ Behavior:
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import tomllib
 from pathlib import Path
+
+# .env keys removed in v0.2 (operator's stale .env carries them forward;
+# the dashboard image used to read them, the v0.2 image consumes
+# QUIP_VALIDATOR_RPC_URLS instead). Match both commented and uncommented
+# forms so we strip leftover documentation lines too.
+ENV_DROP_KEY_PATTERN = re.compile(
+    r"^\s*#?\s*(QUIP_NODE_URL|QUIP_NODE_TOKEN)\s*=", re.IGNORECASE
+)
+ENV_BACKUP_NAME = ".env.v0.1_backup"
+
+# Block appended to .env when QUIP_VALIDATOR_RPC_URLS isn't already documented.
+ENV_V02_BLOCK = """
+# --- v0.2 dashboard indexer (added by scripts/upgrade-config.py) ------------
+# Drives both the chain-side indexer (substrate WS, epochs/finalized/etc.)
+# and the miner REST surface that Caddy fronts on the same host. Comma-
+# separated; defaults to the colocated validator (ws://quip-validator:9944)
+# when unset, so most operators don't need to set this explicitly. Override
+# only when the miner runs on a host without its own local validator.
+# QUIP_VALIDATOR_RPC_URLS=ws://quip-validator:9944
+"""
 
 BACKUP_DIRNAME = ".v0.1_backup"
 
@@ -303,6 +324,77 @@ def _backup(data_dir, dry_run):
     return backup
 
 
+def _upgrade_env_file(env_path, dry_run, warnings):
+    """Migrate the operator's `.env` from v0.1 to v0.2 var names.
+
+    v0.1 dashboard image read `QUIP_NODE_URL` and `QUIP_NODE_TOKEN`;
+    v0.2 uses `QUIP_VALIDATOR_RPC_URLS`. Operators upgrading by
+    `git pull`-ing the repo and running `make updateconfig` would
+    otherwise carry stale entries forward — the new image would either
+    ignore them or be misled by their values (the dashboard image
+    auto-derived a public URL from `QUIP_HOSTNAME` when QUIP_NODE_URL
+    was unset, but a stale uncommented value pinned it to the wrong
+    place).
+
+    Backs up the existing `.env` to `.env.v0.1_backup` alongside it,
+    drops every QUIP_NODE_URL / QUIP_NODE_TOKEN line (commented or
+    uncommented — we strip leftover docs too), and appends a
+    QUIP_VALIDATOR_RPC_URLS comment block when one isn't present.
+    """
+    if not env_path.is_file():
+        return
+
+    backup = env_path.parent / ENV_BACKUP_NAME
+    if backup.exists():
+        warnings.append(
+            f"{backup} already exists; skipping .env migration "
+            "(looks already-migrated)."
+        )
+        return
+
+    content = env_path.read_text()
+    new_lines = []
+    drops = []
+    for line in content.splitlines():
+        m = ENV_DROP_KEY_PATTERN.match(line)
+        if m:
+            drops.append(m.group(1).upper())
+            continue
+        new_lines.append(line)
+
+    has_v02_var = "QUIP_VALIDATOR_RPC_URLS" in content
+    needs_change = bool(drops) or not has_v02_var
+    if not needs_change:
+        return
+
+    if not has_v02_var:
+        new_lines.append(ENV_V02_BLOCK.rstrip("\n"))
+
+    summary_bits = []
+    if drops:
+        summary_bits.append(f"dropped {sorted(set(drops))}")
+    if not has_v02_var:
+        summary_bits.append("appended commented QUIP_VALIDATOR_RPC_URLS placeholder")
+
+    if dry_run:
+        warnings.append(
+            f"[dry-run] would back up {env_path} → {backup}; "
+            + "; ".join(summary_bits)
+        )
+        return
+
+    # Write new content to a tmp file in the same dir, then atomically
+    # rename(env → backup) + rename(tmp → env). If either step fails
+    # we leave the original file intact rather than half-written.
+    tmp = env_path.parent / (env_path.name + ".tmp")
+    tmp.write_text("\n".join(new_lines) + "\n")
+    env_path.rename(backup)
+    tmp.rename(env_path)
+    warnings.append(
+        f"migrated .env: backed up {env_path} → {backup}; " + "; ".join(summary_bits)
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
@@ -318,6 +410,19 @@ def main():
         action="store_true",
         help="Print planned actions and the new config.toml to stdout; "
         "don't touch the filesystem.",
+    )
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Path to .env to migrate alongside the config (default: "
+        "<data_dir>/../.env if present; skip if absent). Use --no-env-file "
+        "to skip the .env migration entirely.",
+    )
+    parser.add_argument(
+        "--no-env-file",
+        action="store_true",
+        help="Skip the .env migration even if a file is detected.",
     )
     args = parser.parse_args()
 
@@ -355,6 +460,10 @@ def main():
         config_path.write_text(new_content)
         print(f"backed up v0.1 config to {backup_dir}")
         print(f"wrote v0.2 config to {config_path}")
+
+    if not args.no_env_file:
+        env_path = args.env_file or data_dir.parent / ".env"
+        _upgrade_env_file(env_path, args.dry_run, warnings)
 
     for w in warnings:
         sys.stderr.write(f"WARN: {w}\n")

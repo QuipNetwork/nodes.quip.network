@@ -6,6 +6,16 @@
 
 `QUIP_FAUCET_URL` now defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`. On a fresh `make testnet` (or `docker compose --profile cpu up -d`) the miner entrypoint generates the keystore, calls the testnet faucet to register the new account on-chain and fund it, and starts mining — no manual `quip-miner bootstrap` step required. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out if you pre-fund the account yourself. `docker-compose.override.yml` (used by `make localdev`) flips this to the colocated dev faucet, so localdev continues to use `//Alice` via the bundled `quip-faucet` sidecar.
 
+### `make updateconfig` also migrates `.env`
+
+`scripts/upgrade-config.py` now rewrites the operator's `.env` (sibling of the `data/` it's converting) in addition to the TOML config. It:
+
+- Backs up the existing `.env` to `.env.v0.1_backup` (idempotency guard: refuses to clobber an existing backup).
+- Drops `QUIP_NODE_URL` and `QUIP_NODE_TOKEN` entries — commented and uncommented forms both — since those v0.1 dashboard env vars were superseded by `QUIP_VALIDATOR_RPC_URLS` in v0.2. Leaving the stale lines in caused the v0.1 dashboard image's auto-derived public URL fallback to win, sending the indexer's miner-REST poll on a pointless `https://<host>` round-trip through Caddy back to the same container.
+- Appends a commented `QUIP_VALIDATOR_RPC_URLS=ws://quip-validator:9944` placeholder so the docker-compose default (the colocated validator alias) is documented in the operator's own file.
+
+Opt out with `python3 scripts/upgrade-config.py data --no-env-file` (or `--env-file PATH` to point at a `.env` outside the default sibling location). Operators on a host with a fresh v0.2 `.env` (no stale keys, has `QUIP_VALIDATOR_RPC_URLS`) see no changes — the migration is conditional on detecting v0.1 markers.
+
 ### Auto-bootstrap miner on first start
 
 Added `quip-bootstrap` as a one-shot init container in the `cpu` / `cuda` profiles. It runs `quip-miner bootstrap` against the local validator + the configured faucet, with a 60-attempt × 10s retry loop. `cpu` and `cuda` declare `depends_on.quip-bootstrap.condition: service_completed_successfully`, so the miner waits for chain registration before starting — eliminating the `RuntimeError: signer account ... is not in QuantumPow.Miners — run 'quip-miner bootstrap' first` crash loop operators previously hit on fresh keystores.
