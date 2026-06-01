@@ -9,7 +9,6 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 | Item | Value |
 |---|---|
 | Image | `registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2` |
-| Image (SHA-pinned) | `:sha-bd56aacd` (digest `sha256:4878f23f…`) |
 | Chain spec | `chain-specs/quip-testnet.json` (committed; same file every operator uses) |
 | Compose v2.20+ | required for `depends_on.required: false` |
 | Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy: ACME + RPC + dashboard) |
