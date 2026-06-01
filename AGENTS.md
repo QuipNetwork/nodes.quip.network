@@ -67,10 +67,10 @@ Prefer thin wrappers over `docker compose` invocations. `PROFILE` is parameteriz
 
 ### Chain spec drift
 
-`chain-specs/quip-testnet.json` mirrors the upstream `quip-protocol-rs` v0.2-preview image's baked-in spec. If `shasum -a 256 -c chain-specs/quip-testnet.json.sha256` fails after an upstream image bump, re-export:
+`chain-specs/quip-testnet.json` mirrors the upstream `quip-protocol-rs` v0.2 image's baked-in spec. If `shasum -a 256 -c chain-specs/quip-testnet.json.sha256` fails after an upstream image bump, re-export:
 
 ```bash
-docker run --rm registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2-preview \
+docker run --rm registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2 \
   build-spec --chain quip-testnet --raw > chain-specs/quip-testnet.json
 (cd chain-specs && shasum -a 256 quip-testnet.json > quip-testnet.json.sha256)
 ```
@@ -237,7 +237,7 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 2. **`rest_port` semantic flip.** v0.1 had operators put any port (commonly 443) for miner-terminated TLS. v0.2 needs `rest_port = 80` so Caddy can proxy. Converter forces 80 + warns; operators editing config by hand can still misconfigure.
 3. **Chain spec drift.** Genesis hash changes upstream → silent peering failure. Always re-export `chain-specs/quip-testnet.json` after pulling a new `quip-protocol-rs` image.
 4. **Topology must be seeded before miners join a fresh testnet.** No bootstrap path exists for miners until sudo seeds `DefaultTopology` via `scripts/seed-advantage2-topology.py`.
-5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2-preview dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:80` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env`. Tracked in the open changes for `dashboard.quip.network`.
+5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2 dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:80` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env`. Tracked in the open changes for `dashboard.quip.network`.
 6. **Non-root container can bind `:80`.** The miner runs as `uid=1000` but the upstream image grants `CAP_NET_BIND_SERVICE` (or equivalent), so binding `:80` works inside the container. Don't add a `:80` → `:8080` workaround thinking the unprivileged-port limit applies; it doesn't here.
 7. **QPU mode selection is now config-driven** (post upstream entrypoint rework). The image's entrypoint calls `quip-miner resolve-modes --config /data/config.toml` and spawns one `quip-miner <mode>` child per resolved backend. Earlier guidance about needing `QUIP_MODE=qpu` env var no longer applies — uncommenting `[qpu]` + `[dwave]` in the config is sufficient (plus `DWAVE_API_KEY` in `.env`).
 

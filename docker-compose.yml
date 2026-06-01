@@ -1,7 +1,7 @@
 # Shared dashboard configuration. The dashboard is always present alongside
 # every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
 x-dashboard: &dashboard
-  image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-v0.2-preview}
+  image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-v0.2}
   pull_policy: always
   container_name: quip-dashboard
   restart: unless-stopped
@@ -32,7 +32,7 @@ services:
   # and /data/keystore.json when unset. We override here to point at the
   # colocated validator + faucet and to expose the REST API on the bridge.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2-preview}
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -69,7 +69,7 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cuda:${QUIP_MINER_TAG:-v0.2-preview}
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cuda:${QUIP_MINER_TAG:-v0.2}
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
@@ -121,7 +121,7 @@ services:
   # validator hasn't finished syncing the chain head yet (the bootstrap
   # call needs an up-to-date balance + topology to succeed).
   quip-bootstrap:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2-preview}
+    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
     pull_policy: always
     container_name: quip-bootstrap
     restart: "no"
@@ -171,7 +171,7 @@ services:
   # Inbound 30333/tcp and 30333/udp must be reachable from the public internet
   # for libp2p peering.
   quip-validator:
-    image: registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.2-preview}
+    image: registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.2}
     pull_policy: always
     container_name: quip-validator
     restart: unless-stopped

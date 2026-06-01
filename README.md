@@ -303,7 +303,7 @@ The compose stack joins the canonical **Quip Testnet** by default. Identity:
 
 #### Joining
 
-A fresh `docker compose --profile cpu up -d` boots straight onto Quip Testnet — the spec is committed at `chain-specs/quip-testnet.json`, the v0.2-preview validator image is pinned by default, and the bootnode addresses are embedded in the spec (no `SUBSTRATE_BOOTNODES` env var needed unless you're overriding for a private network).
+A fresh `docker compose --profile cpu up -d` boots straight onto Quip Testnet — the spec is committed at `chain-specs/quip-testnet.json`, the v0.2 validator image is pinned by default, and the bootnode addresses are embedded in the spec (no `SUBSTRATE_BOOTNODES` env var needed unless you're overriding for a private network).
 
 #### Verifying the spec
 
@@ -318,7 +318,7 @@ To verify provenance against the published validator image:
 
 ```bash
 docker run --rm \
-  registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2-preview \
+  registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2 \
   export-chain-spec --chain quip-testnet --raw > /tmp/from-image.json
 shasum -a 256 /tmp/from-image.json chain-specs/quip-testnet.json
 # Both hashes should match exactly.
@@ -330,10 +330,10 @@ The chain spec is mirrored from `quip-protocol-rs` — specifically `runtime/src
 
 ```bash
 # Pull the new preview image (after upstream pushes the new sha-XXXXXXXX tag)
-docker pull registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2-preview
+docker pull registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2
 
 # Re-export and update the checksum sidecar
-docker run --rm registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2-preview \
+docker run --rm registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2 \
   export-chain-spec --chain quip-testnet --raw > chain-specs/quip-testnet.json
 (cd chain-specs && shasum -a 256 quip-testnet.json > quip-testnet.json.sha256)
 ```
