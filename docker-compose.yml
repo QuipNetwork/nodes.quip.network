@@ -10,13 +10,15 @@ x-dashboard: &dashboard
   environment:
     DB_ADAPTER: postgres
     DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
-    # Substrate WS RPC the dashboard indexer polls for both the chain tab
-    # (epochs, finalized head, validator authorship, hardware descriptor
-    # backfill) and the miner REST surface that Caddy fronts on the same
-    # host. Defaults to the colocated validator alias; miner-only nodes
-    # point it at remote validators (e.g. the testnet bootnodes —
-    # wss://bootnode-{1,2,3}.testnet.quip.network/rpc).
-    QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-validator:9944}
+    # Front-door URL the dashboard uses for BOTH the chain RPC (/rpc, for the
+    # indexer) and — by stripping /rpc — the local miner REST surface
+    # (/api/v1, for self-identification). Both must resolve from one host, so
+    # this points at Caddy's stack-internal :8088 listener: /rpc → quip-validator
+    # and /api/v1 → quip-miner. Pointing it straight at quip-validator:9944
+    # would 404 the /api/v1 probe, so the dashboard would mis-identify "self" as
+    # some other reachable on-chain node. Miner-only nodes can override with a
+    # remote front door (e.g. wss://bootnode-1.testnet.quip.network/rpc).
+    QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-caddy:8088/rpc}
     PORT: "3001"
     RUN_SERVER: "true"
     RUN_INDEXER: "true"

@@ -54,3 +54,12 @@
 {$QUIP_HOSTNAME::20049} {
 	import routing
 }
+
+# Stack-internal front door (plain HTTP). Lets in-network clients — notably the
+# dashboard server resolving the local validator RPC (/rpc) and miner telemetry
+# (/api/v1) — reach the same routes without the public site's TLS cert. Keep
+# :8088 OUT of the compose `ports:` map so it's reachable on the bridge network
+# only, never from the host or the internet.
+:8088 {
+	import routing
+}
