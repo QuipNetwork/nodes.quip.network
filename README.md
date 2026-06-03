@@ -122,7 +122,7 @@ docker compose --profile cuda up -d
 docker compose --profile cpu --profile faucet up -d
 ```
 
-Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.), auto-generates `data/keystore.json` for the miner, then runs the `quip-bootstrap` sidecar to register the new account in the chain's `QuantumPow.Miners` map and fund it via the canonical testnet faucet (`https://faucet.testnet.quip.network`, wired by default). Only after `quip-bootstrap` completes successfully does the `cpu`/`cuda` miner container start producing proofs. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out of faucet-funding if you've pre-funded the account yourself.
+Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. The miner self-bootstraps on startup: it funds the new account via the canonical testnet faucet (`https://faucet.testnet.quip.network`, wired by default) and registers it in the chain's `QuantumPow.Miners` map before it starts producing proofs. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out of faucet-funding if you've pre-funded the account yourself.
 
 Check it came up cleanly:
 

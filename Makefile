@@ -73,9 +73,9 @@ localdev: require-env down clean-chain
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) run --rm \
 	    -v "$(CURDIR)/scripts/seed-advantage2-topology.py:/seed.py:ro" \
 	    --entrypoint python3 cpu /seed.py --sudo-key $(SUDO_KEY)
-	# quip-bootstrap sidecar (in docker-compose.yml) handles the miner
-	# register + fund step before cpu/cuda starts. Topology must already
-	# be seeded above, otherwise bootstrap fails inside the retry loop.
+	# The cpu/cuda miner self-bootstraps (register + fund) on startup.
+	# Topology must already be seeded above, otherwise the miner's
+	# self-bootstrap fails inside its retry loop.
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) up -d
 	@echo ""
 	@echo "localdev stack up. tail logs: make logs"

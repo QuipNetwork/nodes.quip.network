@@ -66,9 +66,6 @@ services:
       quip-validator:
         condition: service_started
         required: false
-      quip-bootstrap:
-        condition: service_completed_successfully
-        required: false
 
   cuda:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cuda:${QUIP_MINER_TAG:-v0.2}
@@ -98,9 +95,6 @@ services:
       quip-validator:
         condition: service_started
         required: false
-      quip-bootstrap:
-        condition: service_completed_successfully
-        required: false
     deploy:
       resources:
         reservations:
@@ -108,61 +102,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-
-  # One-shot init container that registers this node's keystore in the
-  # QuantumPow.Miners storage map. Without this the miner exits on every
-  # startup with `signer account ... is not in QuantumPow.Miners — run
-  # quip-miner bootstrap first`. `quip-miner bootstrap` also calls the
-  # faucet, so a fresh keystore on a healthy testnet ends up funded +
-  # registered in one shot. Idempotent — re-runs on subsequent `up -d`
-  # invocations are a no-op once registration lands.
-  #
-  # The cpu/cuda services declare `depends_on.quip-bootstrap.condition:
-  # service_completed_successfully`, so the miner waits for registration
-  # before starting. The retry loop tolerates a cold-start where the
-  # validator hasn't finished syncing the chain head yet (the bootstrap
-  # call needs an up-to-date balance + topology to succeed).
-  quip-bootstrap:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
-    pull_policy: always
-    container_name: quip-bootstrap
-    restart: "no"
-    profiles:
-      - cpu
-      - cuda
-    env_file:
-      - .env
-    environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
-      QUIP_FAUCET_URL: ${QUIP_FAUCET_URL:-https://faucet.testnet.quip.network}
-    volumes:
-      - ./data:/data
-    networks:
-      default:
-        aliases:
-          - quip-bootstrap
-    depends_on:
-      quip-validator:
-        condition: service_started
-        required: false
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        for i in $$(seq 1 60); do
-          echo "[bootstrap] attempt $$i/60"
-          if quip-miner bootstrap \
-               --validator ws://quip-validator:9944 \
-               --signer-key /data/keystore.json \
-               --faucet-url "$$QUIP_FAUCET_URL"; then
-            echo "[bootstrap] success on attempt $$i"
-            exit 0
-          fi
-          echo "[bootstrap] attempt $$i failed; retrying in 10s..."
-          sleep 10
-        done
-        echo "[bootstrap] giving up after 60 attempts (~10 minutes); check validator sync state + faucet reachability + topology registration"
-        exit 1
 
   # Substrate-based block-producing validator (quip-protocol-rs). Bundled
   # into both the cpu and cuda profiles by default — every operator runs a

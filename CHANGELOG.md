@@ -18,9 +18,9 @@ Opt out with `python3 scripts/upgrade-config.py data --no-env-file` (or `--env-f
 
 ### Auto-bootstrap miner on first start
 
-Added `quip-bootstrap` as a one-shot init container in the `cpu` / `cuda` profiles. It runs `quip-miner bootstrap` against the local validator + the configured faucet, with a 60-attempt × 10s retry loop. `cpu` and `cuda` declare `depends_on.quip-bootstrap.condition: service_completed_successfully`, so the miner waits for chain registration before starting — eliminating the `RuntimeError: signer account ... is not in QuantumPow.Miners — run 'quip-miner bootstrap' first` crash loop operators previously hit on fresh keystores.
+The `cpu` / `cuda` miner self-bootstraps on startup: its entrypoint funds the new account via the configured faucet and registers it in `QuantumPow.Miners`, retrying until the validator has synced, before it starts producing proofs. This eliminates the `RuntimeError: signer account ... is not in QuantumPow.Miners — run 'quip-miner bootstrap' first` crash loop operators previously hit on fresh keystores — with no separate one-shot bootstrap container.
 
-Idempotent. Re-runs on subsequent `up -d` invocations are no-ops once the account is registered. `make localdev` drops its previous explicit bootstrap step (the sidecar handles it) but keeps the topology-seeding step, since seeding still has to happen before bootstrap can succeed.
+Idempotent: re-runs on subsequent `up -d` invocations are no-ops once the account is registered. `make localdev` keeps the topology-seeding step, since seeding still has to happen before the miner's self-bootstrap can succeed.
 
 ### `docker-compose.override.yml` → `docker-compose.localdev.yml` (opt-in)
 

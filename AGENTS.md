@@ -101,9 +101,8 @@ make clean       →  down + wipe chain + drop pgdata volume + wipe dashboard-da
 The flow on a clean `make testnet` boot:
 
 1. `quip-validator` starts → joins testnet via the three bootnodes embedded in `chain-specs/quip-testnet.json`.
-2. `quip-bootstrap` sidecar (one-shot, restart: no) retries `quip-miner bootstrap` with 60×10s backoff. On success it has registered the miner's account in `QuantumPow.Miners` and funded it via `https://faucet.testnet.quip.network`.
-3. `cpu` (or `cuda`) miner starts (gated on bootstrap completing successfully) → mines against `DefaultTopology = advantage2_system1`.
-4. `dashboard` + `postgres` + `caddy` come up alongside.
+2. `cpu` (or `cuda`) miner starts → self-bootstraps on startup: funds its account via `https://faucet.testnet.quip.network` and registers it in `QuantumPow.Miners` (retrying until the validator has synced), then mines against `DefaultTopology = advantage2_system1`.
+3. `dashboard` + `postgres` + `caddy` come up alongside.
 
 ---
 
@@ -183,7 +182,7 @@ The converter (`scripts/upgrade-config.py`) migrates `.env` alongside `data/conf
 | Profiles | `cpu`, `cuda`, `qpu` (separate) | `cpu`, `cuda`, `faucet`. QPU collapsed into `cpu` profile + `[qpu]`/`[dwave]` config sections. `validator-cpu`/`validator-cuda` collapsed (briefly existed, removed when the validator became default-bundled). |
 | Override file | `docker-compose.override.yml` (auto-loaded by `docker compose`) | `docker-compose.localdev.yml` (**opt-in**; not auto-loaded). Renamed deliberately so plain `docker compose --profile cpu up -d` boots testnet instead of silently flipping to `--chain=dev`. Operators who carry over a stale `docker-compose.override.yml` working-copy file will keep getting the dev chain until they remove it. |
 | Faucet | not present | `quip-faucet` service in the `faucet` profile (testnet) or wired into `cpu`/`cuda` via the localdev override (dev). |
-| Bootstrap | manual | One-shot `quip-bootstrap` sidecar in `cpu`/`cuda` profiles. Registers the miner in `QuantumPow.Miners` and triggers faucet auto-fund before the miner container starts. Retries 60×10s. cpu/cuda declare `depends_on.quip-bootstrap.condition: service_completed_successfully` so the miner doesn't start until registration lands. |
+| Bootstrap | manual | The `cpu`/`cuda` miner self-bootstraps on startup: it auto-funds via `QUIP_FAUCET_URL` and registers itself in `QuantumPow.Miners` (retrying until the validator has synced) before it begins mining. No separate bootstrap container. |
 | Dashboard indexer | `QUIP_NODE_URL` (miner REST) | `QUIP_VALIDATOR_RPC_URLS` (substrate WS — drives both chain indexing and miner-REST polling on the same Caddy-fronted host). Upstream image migration pending. |
 
 ## Network / port layout
@@ -218,15 +217,15 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 - v0.1: not present.
 - v0.2 testnet: `https://faucet.testnet.quip.network` (a separate Docker host running the `quip-faucet` image with operator-1 as the funder). Public; rate-limited per destination.
 - v0.2 localdev: `quip-faucet` sidecar in the localdev override, running `//Alice` as the funder. Pre-funded at genesis.
-- The miner's entrypoint auto-calls the faucet on first boot if `QUIP_FAUCET_URL` is set — handled by `quip-bootstrap` in v0.2, no manual step required.
+- The miner's entrypoint auto-calls the faucet on first boot if `QUIP_FAUCET_URL` is set — the miner self-bootstraps, no manual step (or separate bootstrap container) required.
 
 ## Operator workflow changes
 
 | Workflow | v0.1 | v0.2 |
 |---|---|---|
 | First boot | edit `config.toml`, `docker compose up -d` | `make updateconfig` (if migrating); `make testnet`; everything else automatic. |
-| Funding the miner | manual transfer | Auto via `quip-bootstrap` sidecar → `QUIP_FAUCET_URL`. |
-| Registering the miner on chain | n/a | Auto via `quip-bootstrap` (`quip-miner bootstrap` subcommand). |
+| Funding the miner | manual transfer | Auto — the miner self-bootstraps via `QUIP_FAUCET_URL`. |
+| Registering the miner on chain | n/a | Auto — the miner self-registers in `QuantumPow.Miners` on startup. |
 | Stopping the stack | `docker compose down` | `make down` (handles both profile sets). |
 | Auto-update | hourly cron via `cron.sh` (detects profiles from container names) | Same — `cron.sh` rewrites itself in v0.2 to drop `validator-cpu`/`validator-cuda` branches and detect `cpu`/`cuda`/`faucet` independently. |
 | Choosing dev vs testnet | dev was *implicit* via auto-loaded `docker-compose.override.yml` (foot-gun) | `make testnet` (default) vs `make localdev` (explicit `-f docker-compose.localdev.yml`). |
