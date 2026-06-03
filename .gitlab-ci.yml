@@ -1,0 +1,21 @@
+# TEMPORARY runner smoke test — delete this branch after verifying.
+stages: [smoke]
+
+smoke-linux-amd64:
+  stage: smoke
+  tags: [linux, amd64]
+  image: debian:bookworm-slim
+  script:
+    - echo "=== linux/amd64 runner smoke ==="
+    - hostname; uname -a
+    - head -2 /etc/os-release
+    - echo "OK"
+
+smoke-macos-arm64:
+  stage: smoke
+  tags: [macos, arm64]
+  script:
+    - echo "=== macos/arm64 runner smoke ==="
+    - hostname; uname -a
+    - sw_vers || true
+    - echo "OK"
