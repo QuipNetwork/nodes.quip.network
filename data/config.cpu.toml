@@ -4,11 +4,6 @@
 [global]
 genesis_config = "genesis_block.json"
 node_name = "my-cpu-node"
-listen = "::"
-port = 20049
-
-# Set to your server's public hostname (DNS name for TLS, not IP)
-# public_host = "my-node.example.com"
 
 # Deterministic key generation — change this to a unique value for your node.
 # If left as default, the entrypoint generates a random secret on first boot.
@@ -16,30 +11,24 @@ secret = "CHANGE_ME"
 
 # auto_mine = false
 
-peer = [
-    "qpu-1.nodes.quip.network:20049",
-    "cpu-1.quip.carback.us:20049",
-    "gpu-1.quip.carback.us:20049",
-    "gpu-2.quip.carback.us:20050",
+# Substrate validator RPC endpoints the miner submits work to. The first
+# reachable entry is used; the rest are fallbacks. The cpu / cuda profiles
+# bundle a local validator by default, so point at it via the compose
+# network alias. The docker-compose.yml `QUIP_VALIDATORS` env var
+# overrides this at launch time.
+validators = [
+    "ws://quip-validator:9944",
 ]
-
-timeout = 3
-heartbeat_interval = 15
-heartbeat_timeout = 300
-verify_tls = false
-
-# TLS certificates (injected by certbot in entrypoint.sh)
-# tls_cert_file = "/data/certs/private/fullchain.pem"
-# tls_key_file = "/data/certs/private/privkey.pem"
-
-# TOFU
-tofu = true
-trust_db = "/data/trust.db"
+# Example for a miner pointing at a remote full node (e.g. when running the
+# miner on a separate host from the validator):
+# validators = [
+#     "wss://cpu-1.nodes.quip.network/rpc",
+# ]
 
 # REST API (-1 = disabled)
 # rest_insecure_port = 80 lets the bundled dashboard reach the node over the
-# compose network via http://quip-node:80. External ingress is still
-# controlled by the 80:80/tcp mapping in docker-compose.yml (commented out).
+# compose network via http://quip-node:80. External ingress flows through
+# Caddy at /api/v1/* — the miner doesn't publish anything to the host.
 rest_host = "0.0.0.0"
 rest_port = -1
 rest_insecure_port = 80
@@ -56,3 +45,12 @@ http_log = "/data/logs/quip-http.log"
 
 [cpu]
 # num_cpus is auto-set by entrypoint.sh if not already configured
+
+# --- QPU (D-Wave) mining ----------------------------------------------------
+# Uncomment to run this node as a QPU miner. Requires DWAVE_API_KEY in .env.
+# [qpu]
+#
+# [dwave]
+# solver = "Advantage2_system1.13"
+# dwave_region_url = "https://na-west-1.cloud.dwavesys.com/sapi/v2/"
+# daily_budget = "16m"

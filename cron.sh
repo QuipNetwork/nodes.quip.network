@@ -8,36 +8,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 LOG_FILE="${SCRIPT_DIR}/data/update.log"
 
+# Print the --profile arguments needed to recreate whatever the operator is
+# currently running, one flag pair per line. cpu and cuda profiles now
+# bundle the validator + dashboard + caddy by default; the faucet profile
+# layers additively when quip-faucet is also up.
 detect_profile() {
     local running
     running=$(docker ps --format '{{.Names}}')
-    local suffix=""
-    if ! grep -q "^quip-dashboard$" <<<"${running}"; then
-        # No dashboard → caddy can't be meaningful either; use the -nodash
-        # profile which omits dashboard, postgres, and caddy.
-        suffix="-nodash"
-    elif ! grep -q "^quip-caddy$" <<<"${running}"; then
-        # Dashboard is running but caddy isn't → operator picked -notls.
-        suffix="-notls"
+
+    if grep -q "^quip-cpu$" <<<"${running}"; then
+        printf -- '--profile\ncpu\n'
+    elif grep -q "^quip-cuda$" <<<"${running}"; then
+        printf -- '--profile\ncuda\n'
     fi
-    for profile in cuda cpu qpu; do
-        if grep -q "^quip-${profile}$" <<<"${running}"; then
-            echo "${profile}${suffix}"
-            return
-        fi
-    done
+
+    if grep -q "^quip-faucet$" <<<"${running}"; then
+        printf -- '--profile\nfaucet\n'
+    fi
 }
 
 update() {
-    local profile
-    profile=$(detect_profile)
-    if [[ -z "${profile}" ]]; then
+    local profile_args=()
+    mapfile -t profile_args < <(detect_profile)
+    if [[ ${#profile_args[@]} -eq 0 ]]; then
         echo "$(date -Iseconds) No running quip container found, skipping"
         return 0
     fi
 
-    echo "$(date -Iseconds) Checking for updates (profile: ${profile})"
-    docker compose -f "${COMPOSE_FILE}" --profile "${profile}" up -d
+    echo "$(date -Iseconds) Checking for updates (${profile_args[*]})"
+    docker compose -f "${COMPOSE_FILE}" "${profile_args[@]}" up -d
 }
 
 install() {
