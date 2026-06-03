@@ -25,7 +25,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | Path | Purpose |
 |---|---|
 | `docker-compose.yml` | Canonical stack — testnet by default. Validator bundled into `cpu`/`cuda` profiles. |
-| `docker-compose.localdev.yml` | **Opt-in only.** Layered on top of base via `make localdev` or explicit `-f` flags. Flips validator to `--chain=dev`, adds `quip-faucet` sidecar. Was previously `docker-compose.override.yml` — see migration notes below. |
+| `docker-compose.localdev.yml` | **Opt-in only.** Layered on top of base via `make localdev` or explicit `-f` flags. Flips validator to `--chain=dev`, adds `quip-faucet` sidecar, and **namespaces the whole stack** — every service gets a `-localdev` `container_name` and the volumes get a `quip-localdev-` prefix, run under the `-p quip-localdev` project, so it coexists with a live testnet stack instead of colliding over the fixed global names (`quip-postgres`, `quip-validator`, …) in the base file. Was previously `docker-compose.override.yml` — see migration notes below. |
 | `caddy/Caddyfile` | Reverse proxy + auto-TLS. Routes `/rpc` → `quip-validator:9944`, `/api/faucet/*` → `quip-faucet:8087`, `/api/v1/*` → `quip-miner:80`, `/` → `quip-dashboard:3001`. |
 | `chain-specs/quip-testnet.json` | Mirrored from `quip-protocol-rs` via `build-spec --chain quip-testnet --raw`. Re-export when upstream genesis changes. |
 | `chain-specs/quip-testnet.json.sha256` | SHA-256 checksum sidecar — always update alongside the spec. |
@@ -55,11 +55,28 @@ docker compose config --profiles
 docker compose -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu config --services
 ```
 
-Profile membership changes (services moving between `cpu`/`cuda`/`faucet`) need to be cross-checked against `cron.sh` `detect_profile()` — the auto-update logic infers profiles from running container names.
+Profile membership changes (services moving between `cpu`/`cuda`/`faucet`) need to be cross-checked against `cron.sh` `detect_profile()` — the auto-update logic infers profiles from running container names (`^quip-cpu$`/`^quip-cuda$`/`^quip-faucet$`). That matches the **testnet** names only: localdev's `-localdev`-suffixed containers are intentionally excluded, so the hourly cron never recreates a dev stack as testnet.
+
+When adding a service to the base file, also add a `-localdev` `container_name` override (and any named volume) to `docker-compose.localdev.yml` — otherwise the new service reuses the fixed global name and breaks coexistence with a running testnet stack. Validate every service is namespaced:
+
+```bash
+docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu config \
+  | awk '/^services:/{s=1} /^volumes:/{s=0} s && /container_name:/{print}'
+```
+
+Every line should end in `-localdev`.
 
 ### Adding a Make target
 
-Prefer thin wrappers over `docker compose` invocations. `PROFILE` is parameterized (`?= cpu`). Use `COMPOSE` for testnet (plain `docker compose`) or `COMPOSE_LOCALDEV` for localdev (`docker compose -f docker-compose.yml -f docker-compose.localdev.yml`). Don't auto-load any `docker-compose.override.yml` — the rename was deliberate, see migration notes.
+Prefer thin wrappers over `docker compose` invocations. `PROFILE` is parameterized (`?= cpu`). Use `COMPOSE` for testnet (plain `docker compose`) or `COMPOSE_LOCALDEV` for localdev (`docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml` — the distinct `-p` project name is what isolates the dev stack). Don't auto-load any `docker-compose.override.yml` — the rename was deliberate, see migration notes.
+
+Because testnet (default project) and localdev (`-p quip-localdev`) are now separate projects, any teardown target must hit **both** — `make down` runs `docker compose down` once per project. `PROFILE=cuda` testnet boots also depend on `require-mps` (see the GPU/MPS note below); it's a no-op for `PROFILE=cpu`.
+
+### GPU mining / NVIDIA MPS
+
+The `cuda` service is wired for [NVIDIA MPS](https://docs.nvidia.com/deploy/mps/) (hardware SM sharing): `ipc: host`, `pid: host`, a `/tmp/nvidia-mps` bind-mount, and `CUDA_MPS_PIPE_DIRECTORY` + `CUDA_MPS_ACTIVE_THREAD_PERCENTAGE` (driven by `QUIP_GPU_UTILIZATION`, default 100). **MPS is a host facility** — the control daemon runs on the host, not in any container, so the image alone cannot enable it; the `MPS not active in container` miner log is correct graceful degradation, not an image bug. MPS is unsupported under WSL2 / Docker Desktop.
+
+`make testnet PROFILE=cuda` runs the `require-mps` target first, which idempotently starts `nvidia-cuda-mps-control -d` on the host (pipe dir `/tmp/nvidia-mps`, matching the compose bind-mount). Best-effort: a missing binary or a failed start (needs root, or unsupported host) only warns — the miner still boots, degraded. `require-mps` is a no-op for `PROFILE=cpu`. The compose settings are inert (not harmful) on hosts without a running daemon, so `cron.sh`'s plain `docker compose up -d` recreate path is safe — it rejoins the already-running host daemon without restarting it.
 
 ### Editing the converter
 
@@ -91,11 +108,11 @@ A stale chain spec presents as: validator's libp2p connects fine, but `system_he
 ## Operator workflows
 
 ```
-make testnet     →  docker compose --profile cpu up -d                              (live testnet)
-make localdev    →  docker compose -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d   (dev chain)
+make testnet     →  (PROFILE=cuda: start host MPS daemon) docker compose --profile cpu up -d   (live testnet)
+make localdev    →  docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d   (dev chain, own namespace)
 make updateconfig → python3 scripts/upgrade-config.py data                          (v0.1 → v0.2)
-make down        →  tear down both profile sets
-make clean       →  down + wipe chain + drop pgdata volume + wipe dashboard-data    (destructive)
+make down        →  tear down BOTH projects (testnet default + quip-localdev)
+make clean       →  down + wipe chain + drop pgdata + quip-localdev-pgdata volumes + wipe dashboard-data   (destructive)
 ```
 
 The flow on a clean `make testnet` boot:
@@ -239,6 +256,8 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2 dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:80` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env`. Tracked in the open changes for `dashboard.quip.network`.
 6. **Non-root container can bind `:80`.** The miner runs as `uid=1000` but the upstream image grants `CAP_NET_BIND_SERVICE` (or equivalent), so binding `:80` works inside the container. Don't add a `:80` → `:8080` workaround thinking the unprivileged-port limit applies; it doesn't here.
 7. **QPU mode selection is now config-driven** (post upstream entrypoint rework). The image's entrypoint calls `quip-miner resolve-modes --config /data/config.toml` and spawns one `quip-miner <mode>` child per resolved backend. Earlier guidance about needing `QUIP_MODE=qpu` env var no longer applies — uncommenting `[qpu]` + `[dwave]` in the config is sufficient (plus `DWAVE_API_KEY` in `.env`).
+8. **NVIDIA MPS is host-side.** The `MPS not active in container` miner log means no host MPS daemon, not an image defect. `make testnet PROFILE=cuda` starts it (`require-mps`); raw `docker compose --profile cuda up -d` does not — start `nvidia-cuda-mps-control -d` (likely as root) yourself first, or accept the software-nonce fallback. Unsupported under WSL2 / Docker Desktop. See the GPU/MPS working-conventions note.
+9. **Testnet and localdev are separate compose projects.** localdev runs under `-p quip-localdev` with `-localdev` container names; a single `docker compose down` only reaches one project. Use `make down` (hits both). Namespacing fixes *name* collisions, not *host-port* collisions — running both stacks at once still contends for `:80`/`:443`/`:20049`/`:30333`.
 
 ## See also
 

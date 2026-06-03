@@ -9,21 +9,28 @@
 PROFILE          ?= cpu
 SUDO_KEY         ?= //Alice
 DATA             ?= data
+# Host pipe directory for the NVIDIA MPS control daemon (PROFILE=cuda only).
+# Matches the path the cuda service bind-mounts in docker-compose.yml.
+MPS_PIPE_DIR     := /tmp/nvidia-mps
 # Plain `docker compose ...` defaults to live Quip Testnet — only
 # docker-compose.yml is auto-loaded now that the localdev override was
 # renamed off the magic `docker-compose.override.yml` filename.
 COMPOSE          := docker compose
-# Opt-in stack with the dev-chain override layered on top.
-COMPOSE_LOCALDEV := docker compose -f docker-compose.yml -f docker-compose.localdev.yml
+# Opt-in stack with the dev-chain override layered on top. Runs under its own
+# `-p quip-localdev` project so its namespaced containers/volumes (see the
+# container_name/volume overrides in docker-compose.localdev.yml) never collide
+# with a live `make testnet` stack over the fixed global names in the base file.
+COMPOSE_LOCALDEV := docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml
 
 .DEFAULT_GOAL := help
 
-.PHONY: help testnet localdev pull down logs clean clean-chain require-env updateconfig updateconfig-docker
+.PHONY: help testnet localdev pull down logs clean clean-chain require-env require-mps updateconfig updateconfig-docker
 
 help:
 	@echo "nodes.quip.network — operator targets"
 	@echo ""
 	@echo "  make testnet           Pull + bring up stack against live Quip Testnet"
+	@echo "                         (PROFILE=cuda also starts the host NVIDIA MPS daemon)"
 	@echo "  make localdev          Wipe chain, bring up self-contained dev stack"
 	@echo "                         (validator on --chain=dev, faucet, seeded topology,"
 	@echo "                          registered miner, dashboard, caddy)"
@@ -51,9 +58,38 @@ require-env:
 	    exit 1; \
 	}
 
+# Ensure the host NVIDIA MPS control daemon is running before a GPU miner
+# starts, so the cuda container's ipc:host + /tmp/nvidia-mps bind-mount actually
+# enable hardware SM sharing instead of the software-nonce fallback. No-op
+# unless PROFILE=cuda. Best-effort: a missing nvidia-cuda-mps-control, an
+# unsupported host (WSL2/Docker Desktop), or a failed start only warns — the
+# miner still runs (degraded), it doesn't block boot.
+require-mps:
+ifeq ($(PROFILE),cuda)
+	@command -v nvidia-cuda-mps-control >/dev/null 2>&1 || { \
+	    echo "warning: nvidia-cuda-mps-control not found on host."; \
+	    echo "         GPU miner will fall back to software nonce reduction."; \
+	    echo "         Install the NVIDIA driver's MPS utilities to enable SM sharing."; \
+	    exit 0; \
+	}
+	@mkdir -p "$(MPS_PIPE_DIR)" 2>/dev/null || true
+	@if pgrep -f nvidia-cuda-mps-control >/dev/null 2>&1; then \
+	    echo "MPS control daemon already running (pipe dir: $(MPS_PIPE_DIR))."; \
+	else \
+	    echo "starting NVIDIA MPS control daemon (pipe dir: $(MPS_PIPE_DIR))..."; \
+	    if CUDA_MPS_PIPE_DIRECTORY="$(MPS_PIPE_DIR)" nvidia-cuda-mps-control -d; then \
+	        echo "MPS control daemon started."; \
+	    else \
+	        echo "warning: failed to start MPS daemon (may need root, or host is WSL2/Docker Desktop)."; \
+	        echo "         Miner will fall back to software nonce reduction."; \
+	    fi; \
+	fi
+endif
+
 # Live Quip Testnet. Plain `docker compose` is testnet now (the localdev
 # override is opt-in via -f docker-compose.localdev.yml, not auto-loaded).
-testnet: require-env
+# PROFILE=cuda also starts the host MPS daemon first (require-mps).
+testnet: require-env require-mps
 	$(COMPOSE) --profile $(PROFILE) pull
 	$(COMPOSE) --profile $(PROFILE) up -d
 	@echo ""
@@ -108,10 +144,12 @@ updateconfig-docker:
 pull: require-env
 	$(COMPOSE) --profile $(PROFILE) pull
 
-# Use the localdev compose set for down so it reaches the dev-chain
-# faucet (which lives in docker-compose.localdev.yml). Harmless on hosts
-# that only ran `make testnet` — compose ignores services it can't see.
+# Tear down BOTH stacks. testnet (default project) and localdev
+# (-p quip-localdev) now live in separate project namespaces, so each must be
+# torn down on its own. Harmless on hosts that only ran one of them — compose
+# no-ops on a project with nothing running.
 down:
+	$(COMPOSE) --profile $(PROFILE) --profile faucet down
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) --profile faucet down
 
 logs:
@@ -132,7 +170,7 @@ clean-chain:
 # clears dashboard-data so the indexer re-syncs from scratch alongside the
 # fresh DB. Destructive — do not run on a production node without a dump.
 clean: down clean-chain
-	-docker volume rm quip-pgdata 2>/dev/null
+	-docker volume rm quip-pgdata quip-localdev-pgdata 2>/dev/null
 	@if command -v trash >/dev/null 2>&1; then \
 	    trash dashboard-data 2>/dev/null || true; \
 	else \

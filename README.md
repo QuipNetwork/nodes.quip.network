@@ -134,6 +134,24 @@ docker compose logs -f quip-validator   # validator
 
 Then visit the dashboard at `http://localhost:20049/` (dev) or `https://<your-hostname>/` (production).
 
+### CUDA / GPU mining and NVIDIA MPS
+
+For hardware SM sharing across miner processes the CUDA miner uses [NVIDIA MPS](https://docs.nvidia.com/deploy/mps/) (Multi-Process Service). MPS is a **host** facility — a control daemon runs on the host and exposes a pipe directory (`/tmp/nvidia-mps`) that the container joins via `ipc:host`. Without it the miner logs `MPS not active in container — using software nonce reduction only` and runs in a degraded fallback; it does **not** fail. MPS is unsupported under WSL2 / Docker Desktop.
+
+`make testnet PROFILE=cuda` starts the host MPS control daemon for you (the `require-mps` target) before bringing the stack up, so SM sharing just works:
+
+```bash
+make testnet PROFILE=cuda
+```
+
+The `cuda` service in `docker-compose.yml` is already wired for this (`ipc:host`, `pid:host`, the `/tmp/nvidia-mps` bind-mount, and the `CUDA_MPS_*` env). If you bring the stack up with raw `docker compose --profile cuda up -d` instead of `make`, start the daemon on the host yourself first (may require root):
+
+```bash
+sudo nvidia-cuda-mps-control -d
+```
+
+Set `QUIP_GPU_UTILIZATION` in `.env` to cap each miner's GPU SM share (`CUDA_MPS_ACTIVE_THREAD_PERCENTAGE`); default `100`, use `100/N` for `N` miners sharing one GPU. If the NVIDIA driver's MPS utilities aren't installed, `make testnet PROFILE=cuda` warns and continues with the software fallback.
+
 ### Rollback
 
 If you need to undo the conversion: restore the original `data/config.toml` from the backup and remove the v0.2 file.

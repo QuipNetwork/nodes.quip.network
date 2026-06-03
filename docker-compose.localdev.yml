@@ -9,7 +9,15 @@
 #         --profile cpu up -d
 #
 # Or just run `make localdev`, which wraps the same invocation plus the
-# topology seeding + miner bootstrap steps.
+# topology seeding step (the miner self-bootstraps on startup).
+#
+# This whole stack is namespaced: `make localdev` runs it under the
+# `-p quip-localdev` project, and every service below gets a `-localdev`
+# container_name (plus `quip-localdev-` volume names) so it can never collide
+# with a live `make testnet` stack over the fixed global names (quip-postgres,
+# quip-validator, ...) in the base docker-compose.yml. An explicit
+# container_name opts a container OUT of project-name namespacing, so without
+# these overrides the two stacks would fight over the same global names.
 #
 # Flips the stack from "join the live Quip Testnet" to "self-contained
 # single-validator local dev chain" so the miner can mine immediately
@@ -27,17 +35,14 @@
 #          --profile cpu run --rm \
 #          -v $(pwd)/scripts/seed-advantage2-topology.py:/seed.py:ro \
 #          --entrypoint python3 cpu /seed.py --sudo-key //Alice
-#   4. Register the miner + faucet-fund it (idempotent, skips seeding):
-#        docker compose -f docker-compose.yml -f docker-compose.localdev.yml \
-#          --profile cpu run --rm \
-#          --entrypoint quip-miner cpu \
-#          bootstrap --validator ws://quip-validator:9944 \
-#          --signer-key /data/keystore.json \
-#          --faucet-url http://quip-faucet:8087
-#   5. cpu miner auto-funds itself via QUIP_FAUCET_URL on subsequent boots.
+#   4. The cpu/cuda miner self-bootstraps on startup: it registers itself in
+#      QuantumPow.Miners and faucet-funds via QUIP_FAUCET_URL (the colocated
+#      dev faucet, set below). Topology must already be seeded (step 3) or the
+#      self-bootstrap retry loop fails.
 
 services:
   quip-validator:
+    container_name: quip-validator-localdev
     command:
       - --chain=dev
       - --alice
@@ -57,29 +62,44 @@ services:
       - --unsafe-force-node-key-generation
 
   cpu:
+    container_name: quip-cpu-localdev
     environment:
       QUIP_FAUCET_URL: http://quip-faucet:8087
 
   cuda:
+    container_name: quip-cuda-localdev
     environment:
       QUIP_FAUCET_URL: http://quip-faucet:8087
-
-  # Point the bootstrap sidecar at the colocated dev faucet too — otherwise
-  # it'd try to hit the public testnet faucet from inside the dev chain
-  # (wrong chain, won't fund).
-  quip-bootstrap:
-    environment:
-      QUIP_FAUCET_URL: http://quip-faucet:8087
-    depends_on:
-      quip-validator:
-        condition: service_started
-      quip-faucet:
-        condition: service_started
 
   quip-faucet:
+    container_name: quip-faucet-localdev
     profiles:
       # Pull the faucet into the miner profiles so a single
       # `--profile cpu up` brings it up alongside the validator + miner.
       - cpu
       - cuda
       - faucet
+
+  # These three are unchanged from the base file except for the namespaced
+  # container_name — they're listed here only so the localdev stack doesn't
+  # reuse the base file's fixed global names.
+  dashboard:
+    container_name: quip-dashboard-localdev
+
+  postgres:
+    container_name: quip-postgres-localdev
+
+  caddy:
+    container_name: quip-caddy-localdev
+
+# Re-declare the base file's named volumes with a localdev prefix. Services
+# reference them by their compose key (pgdata / caddy-data / caddy-config),
+# which is unchanged — only the global `name` is overridden, so the dev stack
+# gets its own volumes instead of sharing testnet's quip-pgdata etc.
+volumes:
+  pgdata:
+    name: quip-localdev-pgdata
+  caddy-data:
+    name: quip-localdev-caddy-data
+  caddy-config:
+    name: quip-localdev-caddy-config
