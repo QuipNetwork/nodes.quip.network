@@ -24,6 +24,12 @@ x-dashboard: &dashboard
     RUN_INDEXER: "true"
   volumes:
     - ./dashboard-data:/data
+  # Caddy proxies quip-dashboard:3001. An explicit alias — not container_name
+  # DNS — so the localdev override's renamed containers still resolve.
+  networks:
+    default:
+      aliases:
+        - quip-dashboard
   depends_on:
     postgres:
       condition: service_healthy
@@ -270,6 +276,13 @@ services:
       - "20049:20049"
       - "80:80"
       - "443:443"
+    # The dashboard self-discovers through ws://quip-caddy:8088/rpc. An
+    # explicit alias — not container_name DNS — so the localdev override's
+    # renamed containers still resolve.
+    networks:
+      default:
+        aliases:
+          - quip-caddy
     depends_on:
       - dashboard
 

@@ -1,5 +1,6 @@
 .env
 data/config.toml
+data/runtime/
 data/trust.db
 data/certs/
 data/telemetry/
