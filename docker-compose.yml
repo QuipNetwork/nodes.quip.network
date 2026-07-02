@@ -1,3 +1,15 @@
+# NOTE: there is intentionally no `env_file: .env` anywhere in this file.
+# `.env` is docker compose's interpolation source only — a variable reaches a
+# container solely when an `environment:` entry below wires it through. This
+# keeps each service's env contract explicit and stops secrets like
+# POSTGRES_PASSWORD from leaking into every container.
+
+# Runtime uid/gid mapping, shared by every image that does the
+# root-entrypoint -> chown /data -> gosu privilege-drop dance.
+x-runtime-user: &runtime-user
+  PUID: ${PUID:-1000}
+  PGID: ${PGID:-1000}
+
 # Shared dashboard configuration. The dashboard is always present alongside
 # every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
 x-dashboard: &dashboard
@@ -5,10 +17,9 @@ x-dashboard: &dashboard
   pull_policy: always
   container_name: quip-dashboard
   restart: unless-stopped
-  env_file:
-    - .env
   environment:
-    DB_ADAPTER: postgres
+    # Adapter selection is driven by DATABASE_URL presence (postgres when
+    # set, sqlite fallback otherwise) — there is no DB_ADAPTER env var.
     DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
     # Front-door URL the dashboard uses for BOTH the chain RPC (/rpc, for the
     # indexer) and — by stripping /rpc — the local miner REST surface
@@ -35,10 +46,11 @@ x-dashboard: &dashboard
       condition: service_healthy
 
 services:
-  # Shared env block consumed by the quip-miner entrypoint (CPU + CUDA).
-  # All variables are optional — the entrypoint falls back to /data/config.toml
-  # and /data/keystore.json when unset. We override here to point at the
-  # colocated validator + faucet and to expose the REST API on the bridge.
+  # The environment block below is the miner's full env contract (CPU + CUDA).
+  # Everything else comes from /data/config.toml — the entrypoint's template
+  # ships an empty validators list and REST disabled, so QUIP_VALIDATORS and
+  # QUIP_REST_PORT here are what point the miner at the colocated validator
+  # and expose its REST API to Caddy on the bridge.
   cpu:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
     pull_policy: always
@@ -52,16 +64,16 @@ services:
     # this is what the entrypoint actually sees, unlike `cpus:` (CFS quota).
     # Operators with dedicated miner hosts override with e.g. QUIP_MINER_CPUSET=0-15.
     cpuset: ${QUIP_MINER_CPUSET:-0}
-    env_file:
-      - .env
     environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
+      <<: *runtime-user
       QUIP_VALIDATORS: ${QUIP_VALIDATORS:-ws://quip-validator:9944}
       QUIP_FAUCET_URL: ${QUIP_FAUCET_URL:-https://faucet.testnet.quip.network}
-      QUIP_REST_HOST: ${QUIP_REST_HOST:-0.0.0.0}
+      # Caddy fronts the miner REST surface at quip-miner:80 (see
+      # caddy/Caddyfile), not the image default 8086.
       QUIP_REST_PORT: ${QUIP_REST_PORT:-80}
-      QUIP_SIGNER_KEY: ${QUIP_SIGNER_KEY:-/data/keystore.json}
+      # The one secret still delivered by env — only qpu-mode miners read it.
+      # Goes away once the miner reads the D-Wave token from a file.
+      DWAVE_API_KEY: ${DWAVE_API_KEY:-}
     volumes:
       - ./data:/data
     networks:
@@ -89,17 +101,18 @@ services:
     # these only engage on a native Linux GPU host.
     ipc: host
     pid: host
-    env_file:
-      - .env
     environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
-      QUIP_MODE: gpu
+      <<: *runtime-user
+      # Mode is config-driven — the cuda image bakes in QUIP_DEFAULT_MODE=gpu
+      # itself, so no mode env var is needed (upstream docker/README.md).
       QUIP_VALIDATORS: ${QUIP_VALIDATORS:-ws://quip-validator:9944}
       QUIP_FAUCET_URL: ${QUIP_FAUCET_URL:-https://faucet.testnet.quip.network}
-      QUIP_REST_HOST: ${QUIP_REST_HOST:-0.0.0.0}
+      # Caddy fronts the miner REST surface at quip-miner:80 (see
+      # caddy/Caddyfile), not the image default 8086.
       QUIP_REST_PORT: ${QUIP_REST_PORT:-80}
-      QUIP_SIGNER_KEY: ${QUIP_SIGNER_KEY:-/data/keystore.json}
+      # The one secret still delivered by env — only qpu-mode miners read it.
+      # Goes away once the miner reads the D-Wave token from a file.
+      DWAVE_API_KEY: ${DWAVE_API_KEY:-}
       # When a host MPS daemon is up, cap this client's GPU SMs at the operator's
       # configured utilization (the manager writes QUIP_GPU_UTILIZATION to .env).
       CUDA_MPS_PIPE_DIRECTORY: /tmp/nvidia-mps
@@ -141,11 +154,7 @@ services:
     profiles:
       - cpu
       - cuda
-    env_file:
-      - .env
-    environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
+    environment: *runtime-user
     volumes:
       - ./data/validator-data:/data
       # Chain spec selector. Defaults to the canonical Quip Testnet spec;
@@ -200,11 +209,8 @@ services:
     restart: unless-stopped
     profiles:
       - faucet
-    env_file:
-      - .env
     environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
+      <<: *runtime-user
       QUIP_FAUCET_ALLOW_ANY_CHAIN: ${QUIP_FAUCET_ALLOW_ANY_CHAIN:-0}
     networks:
       default:
@@ -255,8 +261,6 @@ services:
     profiles:
       - cpu
       - cuda
-    env_file:
-      - .env
     environment:
       QUIP_HOSTNAME: ${QUIP_HOSTNAME:-:20049}
       # ACME registration email. Operators set CERT_EMAIL in .env before

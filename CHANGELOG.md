@@ -2,6 +2,22 @@
 
 ## v0.2 (unreleased)
 
+### Explicit per-service env contract (no more blanket `env_file`)
+
+`docker-compose.yml` no longer attaches `env_file: .env` to every service. `.env` is now compose's interpolation source only: a variable reaches a container solely when an `environment:` entry wires it through. Previously every `.env` entry — including `POSTGRES_PASSWORD`, `DWAVE_API_KEY`, and `ZEROSSL_API_KEY` — was injected into every container, whether it used them or not.
+
+**Operator impact**: if your `.env` carries a custom variable that a container consumed via the old blanket injection, wire it through a `docker-compose.override.yml` `environment:` entry. The documented variables in `env.example` are unaffected — they were already interpolated or explicitly wired.
+
+Related cleanups in the same pass:
+
+- `PUID`/`PGID` are defined once via a shared `x-runtime-user` YAML anchor instead of being repeated per service.
+- `DWAVE_API_KEY` is passed explicitly to the cpu/cuda miners (the only consumers, and only in qpu mode). Slated for removal once the miner reads the token from a file.
+- Dropped `QUIP_MODE=gpu` from the cuda service — upstream is config-driven and the cuda image bakes in `QUIP_DEFAULT_MODE=gpu`; the var was never read.
+- Dropped `DB_ADAPTER=postgres` from the dashboard — the image selects its adapter from `DATABASE_URL` presence; no such env var exists in the dashboard source.
+- Dropped `QUIP_REST_HOST` and `QUIP_SIGNER_KEY` from the miner services — both restated the entrypoint's own defaults (`0.0.0.0`, `/data/keystore.json`).
+- Dropped `SUBSTRATE_BOOTNODES` from `env.example` — it was never wired into the validator (compose can't split one env var into multiple `--bootnodes` argv tokens). Private-network operators add `--bootnodes=` flags via `docker-compose.override.yml`.
+- Removed the stale `docker-compose.override.dev.yml.bak`.
+
 ### Testnet auto-fund on first boot
 
 `QUIP_FAUCET_URL` now defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`. On a fresh `make testnet` (or `docker compose --profile cpu up -d`) the miner entrypoint generates the keystore, calls the testnet faucet to register the new account on-chain and fund it, and starts mining — no manual `quip-miner bootstrap` step required. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out if you pre-fund the account yourself. `docker-compose.override.yml` (used by `make localdev`) flips this to the colocated dev faucet, so localdev continues to use `//Alice` via the bundled `quip-faucet` sidecar.
