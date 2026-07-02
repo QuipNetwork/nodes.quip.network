@@ -38,7 +38,7 @@ from pathlib import Path
 from dwave_topologies.topologies.advantage2_system1 import ADVANTAGE2_SYSTEM1_TOPOLOGY
 
 from shared.hybrid_signer import HybridSigner
-from shared.miner_bootstrap import (
+from substrate.miner_bootstrap import (
     DEFAULT_SEED_DIFFICULTY,
     _DEFAULT_ALLOWED_H,
     _DEFAULT_ALLOWED_J,
@@ -154,13 +154,28 @@ async def main(args: argparse.Namespace) -> int:
     )
     print("advantage2_system1 topology registered — block-included")
 
+    # Difficulty is keyed per topology hash now. Re-fetch the snapshot the
+    # registration just created so set_difficulty targets its hash — same
+    # sequence as `substrate.miner_bootstrap._seed_chain`.
+    snapshot = await client.get_mining_snapshot(miner_account_bytes=b"\x00" * 32)
+    if snapshot is None:
+        print(
+            "ERROR: register_topology landed but mining_snapshot is still None; "
+            "the topology may have failed inner-call validation.",
+            file=sys.stderr,
+        )
+        return 1
+
     print("submitting Sudo.sudo(QuantumPow.set_difficulty) ...")
     await _sudo_call(
         client,
         signer,
         "QuantumPow",
         "set_difficulty",
-        {"difficulty": _difficulty_to_dict(DEFAULT_SEED_DIFFICULTY)},
+        {
+            "topology_hash": "0x" + snapshot.topology_hash.hex(),
+            "difficulty": _difficulty_to_dict(DEFAULT_SEED_DIFFICULTY),
+        },
     )
     print("difficulty seeded — block-included")
     return 0
