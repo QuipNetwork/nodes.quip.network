@@ -211,7 +211,7 @@ services:
     command:
       - --node-url=${QUIP_FAUCET_NODE_URL:-ws://quip-validator:9944}
       - --faucet-key=${QUIP_FAUCET_KEY:-//Alice}
-      - --listen=0.0.0.0
+      - --listen-host=0.0.0.0
       - --port=8087
       - --rate-limit-seconds=${QUIP_FAUCET_RATE_LIMIT_SECONDS:-60}
 
