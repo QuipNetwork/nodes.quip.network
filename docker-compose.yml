@@ -46,11 +46,11 @@ x-dashboard: &dashboard
       condition: service_healthy
 
 services:
-  # The environment block below is the miner's full env contract (CPU + CUDA).
-  # Everything else comes from /data/config.toml — the entrypoint's template
-  # ships an empty validators list and REST disabled, so QUIP_VALIDATORS and
-  # QUIP_REST_PORT here are what point the miner at the colocated validator
-  # and expose its REST API to Caddy on the bridge.
+  # The miner is config-driven as of the quip-protocol v0.2.1-rc line: all
+  # mining configuration lives in /data/config.toml (seeded on first run
+  # from the mounted template below) and there are no QUIP_* config env
+  # vars. The environment block carries only host concerns (PUID/PGID)
+  # plus the D-Wave credential.
   cpu:
     image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
     pull_policy: always
@@ -66,16 +66,17 @@ services:
     cpuset: ${QUIP_MINER_CPUSET:-0}
     environment:
       <<: *runtime-user
-      QUIP_VALIDATORS: ${QUIP_VALIDATORS:-ws://quip-validator:9944}
-      QUIP_FAUCET_URL: ${QUIP_FAUCET_URL:-https://faucet.testnet.quip.network}
-      # Caddy fronts the miner REST surface at quip-miner:80 (see
-      # caddy/Caddyfile), not the image default 8086.
-      QUIP_REST_PORT: ${QUIP_REST_PORT:-80}
-      # The one secret still delivered by env — only qpu-mode miners read it.
-      # Goes away once the miner reads the D-Wave token from a file.
+      # The one config-adjacent secret still delivered by env — read by the
+      # QPU layer only, with the Ocean SDK's ~/.config/dwave/dwave.conf as
+      # the file-based fallback.
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
     volumes:
       - ./data:/data
+      # First-run config seed. The entrypoint copies this template to
+      # /data/config.toml only when that file doesn't exist yet; our fork
+      # fills in the testnet faucet_url (upstream's template leaves it
+      # unset, which disables auto-funding).
+      - ./config/quip-miner.cpu.toml:/app/quip-miner.docker.toml:ro
     networks:
       default:
         aliases:
@@ -103,22 +104,19 @@ services:
     pid: host
     environment:
       <<: *runtime-user
-      # Mode is config-driven — the cuda image bakes in QUIP_DEFAULT_MODE=gpu
-      # itself, so no mode env var is needed (upstream docker/README.md).
-      QUIP_VALIDATORS: ${QUIP_VALIDATORS:-ws://quip-validator:9944}
-      QUIP_FAUCET_URL: ${QUIP_FAUCET_URL:-https://faucet.testnet.quip.network}
-      # Caddy fronts the miner REST surface at quip-miner:80 (see
-      # caddy/Caddyfile), not the image default 8086.
-      QUIP_REST_PORT: ${QUIP_REST_PORT:-80}
-      # The one secret still delivered by env — only qpu-mode miners read it.
-      # Goes away once the miner reads the D-Wave token from a file.
+      # The one config-adjacent secret still delivered by env — read by the
+      # QPU layer only, with the Ocean SDK's ~/.config/dwave/dwave.conf as
+      # the file-based fallback.
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
       # When a host MPS daemon is up, cap this client's GPU SMs at the operator's
       # configured utilization (the manager writes QUIP_GPU_UTILIZATION to .env).
+      # NVIDIA runtime vars — no config-file equivalent exists for these.
       CUDA_MPS_PIPE_DIRECTORY: /tmp/nvidia-mps
       CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: ${QUIP_GPU_UTILIZATION:-100}
     volumes:
       - ./data:/data
+      # First-run config seed (see the cpu service note).
+      - ./config/quip-miner.cuda.toml:/app/quip-miner.docker.toml:ro
       # MPS control pipe shared with the host daemon. Resolves to an empty dir
       # (no MPS) on hosts without a running daemon — safe to mount regardless.
       - /tmp/nvidia-mps:/tmp/nvidia-mps

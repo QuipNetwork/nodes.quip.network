@@ -1,0 +1,17 @@
+# Localdev miner config (CUDA). `make localdev PROFILE=cuda` copies this
+# file to data/config.toml before bringing the stack up, replacing
+# whatever was there — the localdev stack is self-contained and
+# disposable by design.
+#
+# Differences from the testnet template (config/quip-miner.cuda.toml):
+# faucet_url points at the colocated dev faucet (//Alice funder) instead
+# of the canonical testnet faucet.
+
+[miner]
+signer_key = "/data/keystore.json"
+faucet_url = "http://quip-faucet:8087"
+rest_host = "0.0.0.0"
+rest_port = 8086
+node_name = "localdev-miner"
+
+[cuda.0]

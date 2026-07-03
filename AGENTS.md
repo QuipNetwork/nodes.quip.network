@@ -26,7 +26,9 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 |---|---|
 | `docker-compose.yml` | Canonical stack — testnet by default. Validator bundled into `cpu`/`cuda` profiles. |
 | `docker-compose.localdev.yml` | **Opt-in only.** Layered on top of base via `make localdev` or explicit `-f` flags. Flips validator to `--chain=dev`, adds `quip-faucet` sidecar, and **namespaces the whole stack** — every service gets a `-localdev` `container_name` and the volumes get a `quip-localdev-` prefix, run under the `-p quip-localdev` project, so it coexists with a live testnet stack instead of colliding over the fixed global names (`quip-postgres`, `quip-validator`, …) in the base file. Was previously `docker-compose.override.yml` — see migration notes below. |
-| `caddy/Caddyfile` | Reverse proxy + auto-TLS. Routes `/rpc` → `quip-validator:9944`, `/api/faucet/*` → `quip-faucet:8087`, `/api/v1/*` → `quip-miner:80`, `/` → `quip-dashboard:3001`. |
+| `caddy/Caddyfile` | Reverse proxy + auto-TLS. Routes `/rpc` → `quip-validator:9944`, `/api/faucet/*` → `quip-faucet:8087`, `/api/v1/*` → `quip-miner:8086`, `/` → `quip-dashboard:3001`. |
+| `config/quip-miner.{cpu,cuda}.toml` | Miner first-run config templates, forked from quip-protocol's docker templates with the testnet `faucet_url` filled in. Bind-mounted over `/app/quip-miner.docker.toml`; the entrypoint copies one to `data/config.toml` when that file doesn't exist. |
+| `config/localdev.{cpu,cuda}.toml` | Localdev miner configs (colocated dev faucet). `make localdev` copies the profile's variant to `data/config.toml` before bringing the stack up. |
 | `chain-specs/quip-testnet.json` | Mirrored from `quip-protocol-rs` via `build-spec --chain quip-testnet --raw`. Re-export when upstream genesis changes. |
 | `chain-specs/quip-testnet.json.sha256` | SHA-256 checksum sidecar — always update alongside the spec. |
 | `data/config.toml` | Canonical v0.2 `[miner]` template (gitignored copy lives at operator's `data/config.toml`). |
@@ -158,7 +160,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `[global].node_name` | `[miner].node_name` | Most important field — carried over by the converter. |
 | `[global].public_host`, `.public_port` | `[miner].public_host`, `.public_port` | Promoted to first-class (was commented in v0.1). |
 | `[global].rest_host` | `[miner].rest_host` | Direct copy. |
-| `[global].rest_port` | `[miner].rest_port` (**forced to 80**) | Caddy now proxies `/api/v1/*` to `quip-miner:80`. v0.1 values like 443 (miner-terminated TLS) break the Caddy upstream. Converter forces 80 + warns. |
+| `[global].rest_port` | `[miner].rest_port` (**forced to 8086**) | Caddy now proxies `/api/v1/*` to `quip-miner:8086` (the upstream image default). v0.1 values like 443 (miner-terminated TLS) break the Caddy upstream. Converter forces 8086 + warns. |
 | `[global].log_level`, `.node_log` | `[miner].log_level`, `.node_log` | Promoted; `node_log` is now rotating 10MB × 5 (was unbounded in v0.1). |
 | `[global].secret` | dropped | Deterministic-key seed replaced by hybrid sr25519 + ML-DSA-44 keystore at `signer_key`. |
 | `[global].genesis_config` | dropped | Genesis owned by validator (chain spec baked into binary). |
@@ -184,9 +186,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `QUIP_NODE_URL` | `QUIP_VALIDATOR_RPC_URLS` | Plural; comma-separated; drives both chain indexing and the miner REST surface that Caddy fronts on the same host. Forward-looking name; upstream dashboard image migration pending — currently the image still reads `QUIP_NODE_URL`. |
 | `QUIP_NODE_TOKEN` | dropped | Bearer-token access control is now deployment-layer. |
 | `QUIP_HOSTNAME` | unchanged (semantics expanded) | Drives Caddy listen + TLS. Comma-separated form (`host, host:20049`) needed for prod TLS. |
-| `QUIP_VALIDATORS` | new | Optional CLI override for `[miner].validators`. Defaults to `ws://quip-validator:9944` in docker-compose. |
-| `QUIP_REST_PORT` | new | CLI override for `[miner].rest_port`. Compose pins it to 80 so Caddy's `quip-miner:80` upstream works. (`QUIP_SIGNER_KEY`/`QUIP_REST_HOST` exist upstream but compose no longer sets them — the entrypoint defaults already match.) |
-| `QUIP_FAUCET_URL` | new | Defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`; `docker-compose.localdev.yml` overrides to `http://quip-faucet:8087`. |
+| `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, `QUIP_REST_PORT`, `QUIP_REST_HOST`, `QUIP_SIGNER_KEY` | **dead** (config-driven) | The v0.2.1-rc miner images have no configuration env vars — set `[miner].validators` / `.faucet_url` / `.rest_port` / `.rest_host` / `.signer_key` in `data/config.toml` instead. `make updateconfig` backfills these keys and strips the dead lines from `.env`. |
 | `QUIP_VALIDATOR_TAG`, `QUIP_VALIDATOR_RPC_URLS`, `QUIP_FAUCET_TAG`, `QUIP_FAUCET_NODE_URL`, `QUIP_FAUCET_KEY`, `QUIP_FAUCET_RATE_LIMIT_SECONDS`, `QUIP_FAUCET_ALLOW_ANY_CHAIN`, `VALIDATOR_NAME`, `CERT_EMAIL`, `ZEROSSL_API_KEY`, `QUIP_MINER_CPUSET`, `QUIP_CHAIN_SPEC`, `QUIP_DASHBOARD_TAG` | new | See `env.example` for inline docs. |
 
 `.env` is compose's interpolation source only — there is no blanket `env_file:` anywhere in `docker-compose.yml`, so a variable reaches a container only when an `environment:` entry wires it through. `SUBSTRATE_BOOTNODES` was dropped entirely (compose can't split one env var into multiple `--bootnodes` argv tokens; use a `docker-compose.override.yml`).
@@ -201,7 +201,7 @@ The converter (`scripts/upgrade-config.py`) migrates `.env` alongside `data/conf
 | Profiles | `cpu`, `cuda`, `qpu` (separate) | `cpu`, `cuda`, `faucet`. QPU collapsed into `cpu` profile + `[qpu]`/`[dwave]` config sections. `validator-cpu`/`validator-cuda` collapsed (briefly existed, removed when the validator became default-bundled). |
 | Override file | `docker-compose.override.yml` (auto-loaded by `docker compose`) | `docker-compose.localdev.yml` (**opt-in**; not auto-loaded). Renamed deliberately so plain `docker compose --profile cpu up -d` boots testnet instead of silently flipping to `--chain=dev`. Operators who carry over a stale `docker-compose.override.yml` working-copy file will keep getting the dev chain until they remove it. |
 | Faucet | not present | `quip-faucet` service in the `faucet` profile (testnet) or wired into `cpu`/`cuda` via the localdev override (dev). |
-| Bootstrap | manual | The `cpu`/`cuda` miner self-bootstraps on startup: it auto-funds via `QUIP_FAUCET_URL` and registers itself in `QuantumPow.Miners` (retrying until the validator has synced) before it begins mining. No separate bootstrap container. |
+| Bootstrap | manual | The `cpu`/`cuda` miner self-bootstraps on startup: it auto-funds via `[miner].faucet_url` in `data/config.toml` and registers itself in `QuantumPow.Miners` (retrying until the validator has synced) before it begins mining. No separate bootstrap container. |
 | Dashboard indexer | `QUIP_NODE_URL` (miner REST) | `QUIP_VALIDATOR_RPC_URLS` (substrate WS — drives both chain indexing and miner-REST polling on the same Caddy-fronted host). Upstream image migration pending. |
 
 ## Network / port layout
@@ -213,7 +213,7 @@ The converter (`scripts/upgrade-config.py`) migrates `.env` alongside `data/conf
 | `9615/tcp` | n/a | Substrate Prometheus metrics (internal). |
 | `20049/tcp` | host-published; quip-node REST | Caddy public API port. Same routes as `:443`. Required for operator deployments. |
 | `80/tcp`, `443/tcp` | n/a | Caddy ACME HTTP-01 + HTTPS. Only needed if using HTTP-01 cert challenge (DNS-01 alternative is documented in README). |
-| Miner REST | host-bound, miner-terminated TLS at `rest_port` (often 443) | internal `quip-miner:80`; Caddy proxies `/api/v1/*` to it. Operators with `rest_port = 443` from v0.1 break the proxy until they (or the converter) sets it to 80. |
+| Miner REST | host-bound, miner-terminated TLS at `rest_port` (often 443) | internal `quip-miner:8086`; Caddy proxies `/api/v1/*` to it. Operators with `rest_port = 443` from v0.1 break the proxy until they (or the converter) sets it to 8086. |
 | Validator-to-validator gossip | n/a (P2P mesh) | libp2p TCP + QUIC on `:30333`. Bootnodes hardcoded in chain spec. |
 
 Verify any port from the public internet with `curl https://check.quip.network/checkport?port=N` — the service uses the caller's source IP, so run from the host you want to test.
@@ -236,14 +236,14 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 - v0.1: not present.
 - v0.2 testnet: `https://faucet.testnet.quip.network` (a separate Docker host running the `quip-faucet` image with operator-1 as the funder). Public; rate-limited per destination.
 - v0.2 localdev: `quip-faucet` sidecar in the localdev override, running `//Alice` as the funder. Pre-funded at genesis.
-- The miner's entrypoint auto-calls the faucet on first boot if `QUIP_FAUCET_URL` is set — the miner self-bootstraps, no manual step (or separate bootstrap container) required.
+- The miner auto-calls the faucet on first boot if `[miner].faucet_url` is set in `data/config.toml` — the miner self-bootstraps, no manual step (or separate bootstrap container) required.
 
 ## Operator workflow changes
 
 | Workflow | v0.1 | v0.2 |
 |---|---|---|
 | First boot | edit `config.toml`, `docker compose up -d` | `make updateconfig` (if migrating); `make testnet`; everything else automatic. |
-| Funding the miner | manual transfer | Auto — the miner self-bootstraps via `QUIP_FAUCET_URL`. |
+| Funding the miner | manual transfer | Auto — the miner self-bootstraps via the configured `faucet_url`. |
 | Registering the miner on chain | n/a | Auto — the miner self-registers in `QuantumPow.Miners` on startup. |
 | Stopping the stack | `docker compose down` | `make down` (handles both profile sets). |
 | Auto-update | hourly cron via `cron.sh` (detects profiles from container names) | Same — `cron.sh` rewrites itself in v0.2 to drop `validator-cpu`/`validator-cuda` branches and detect `cpu`/`cuda`/`faucet` independently. |
@@ -255,7 +255,7 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 2. **`rest_port` semantic flip.** v0.1 had operators put any port (commonly 443) for miner-terminated TLS. v0.2 needs `rest_port = 80` so Caddy can proxy. Converter forces 80 + warns; operators editing config by hand can still misconfigure.
 3. **Chain spec drift.** Genesis hash changes upstream → silent peering failure. Always re-export `chain-specs/quip-testnet.json` after pulling a new `quip-protocol-rs` image.
 4. **Topology must be seeded before miners join a fresh testnet.** No bootstrap path exists for miners until sudo seeds `DefaultTopology` via `scripts/seed-advantage2-topology.py`.
-5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2 dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:80` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env`. Tracked in the open changes for `dashboard.quip.network`.
+5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2 dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:8086` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env` (and wire them into the dashboard service via a `docker-compose.override.yml`). Tracked in the open changes for `dashboard.quip.network`.
 6. **Non-root container can bind `:80`.** The miner runs as `uid=1000` but the upstream image grants `CAP_NET_BIND_SERVICE` (or equivalent), so binding `:80` works inside the container. Don't add a `:80` → `:8080` workaround thinking the unprivileged-port limit applies; it doesn't here.
 7. **QPU mode selection is now config-driven** (post upstream entrypoint rework). The image's entrypoint calls `quip-miner resolve-modes --config /data/config.toml` and spawns one `quip-miner <mode>` child per resolved backend. Earlier guidance about needing `QUIP_MODE=qpu` env var no longer applies — uncommenting `[qpu]` + `[dwave]` in the config is sufficient (plus `DWAVE_API_KEY` in `.env`).
 8. **NVIDIA MPS is host-side.** The `MPS not active in container` miner log means no host MPS daemon, not an image defect. `make testnet PROFILE=cuda` starts it (`require-mps`); raw `docker compose --profile cuda up -d` does not — start `nvidia-cuda-mps-control -d` (likely as root) yourself first, or accept the software-nonce fallback. Unsupported under WSL2 / Docker Desktop. See the GPU/MPS working-conventions note.

@@ -70,12 +70,36 @@ PROMOTED_GLOBAL_KEYS = (
 )
 
 # v0.2 Caddy fronts the miner's REST API and proxies /api/v1/* to
-# quip-miner:80. The miner's telemetry process MUST bind :80 internally
+# quip-miner:8086 (the upstream image's rest_port default — see
+# caddy/Caddyfile). The miner's telemetry process MUST bind this port
 # for the dashboard indexer + dashboard UI to reach it. v0.1 deployments
 # commonly used 443 (miner-terminated TLS) or other ports, so we force
 # the v0.2 convention regardless of what the v0.1 config said, and emit
 # a warning when overriding.
-CADDY_PROXY_REST_PORT = 80
+CADDY_PROXY_REST_PORT = 8086
+
+# Canonical testnet faucet, written into configs that lack faucet_url so
+# the miner's first-boot self-bootstrap (register + fund) keeps working
+# now that the QUIP_FAUCET_URL env var is gone (the v0.2.1-rc miner
+# images have no configuration env vars).
+FAUCET_TESTNET_URL = "https://faucet.testnet.quip.network"
+
+# Miner env vars with no consumer as of the quip-protocol v0.2.1-rc
+# images — the miner is fully config-driven. Uncommented values are
+# harvested into config.toml before the lines are stripped from .env.
+DEAD_MINER_ENV_KEYS = (
+    "QUIP_VALIDATORS",
+    "QUIP_FAUCET_URL",
+    "QUIP_REST_PORT",
+    "QUIP_REST_HOST",
+    "QUIP_SIGNER_KEY",
+    "QUIP_MODE",
+)
+DEAD_MINER_ENV_PATTERN = re.compile(
+    r"^\s*(#\s*)?(" + "|".join(DEAD_MINER_ENV_KEYS) + r")\s*=\s*(.*)$"
+)
+ENV_BACKUP_NAME_V02 = ".env.pre-config-driven_backup"
+CONFIG_BACKFILL_BACKUP = "config.toml.pre-backfill.bak"
 
 # v0.1 [global] keys we drop SILENTLY (no operator action needed; backup
 # retains the original value).
@@ -156,10 +180,11 @@ def _render_miner_section(harvested):
     out.append("]")
 
     out.append(f'signer_key = {_emit_string(harvested.get("signer_key", "/data/keystore.json"))}')
+    out.append(f"faucet_url = {_emit_string(FAUCET_TESTNET_URL)}")
 
     # rest_port is forced to the v0.2 Caddy-proxy convention regardless of
     # the v0.1 value; see _render_config for the warning emitted when this
-    # overrides a non-80 v0.1 setting.
+    # overrides a mismatched v0.1 setting.
     out.append(f"rest_port = {CADDY_PROXY_REST_PORT}")
     out.append(f'rest_host = {_emit_string(harvested.get("rest_host", "0.0.0.0"))}')
 
@@ -210,8 +235,9 @@ def _render_config(parsed, warnings):
             f"forcing [miner].rest_port to {CADDY_PROXY_REST_PORT} (v0.2 Caddy proxies "
             f"/api/v1/* to quip-miner:{CADDY_PROXY_REST_PORT}); your v0.1 [global]."
             f"rest_port={global_table['rest_port']!r} was dropped because the miner no "
-            "longer terminates TLS itself — Caddy does. Override QUIP_REST_PORT in .env "
-            "if you genuinely need a different internal port."
+            "longer terminates TLS itself — Caddy does. If you genuinely need a "
+            "different internal port, edit [miner].rest_port and caddy/Caddyfile "
+            "together."
         )
 
     # Surface unknown [global] keys so we don't silently lose operator-tuned
@@ -395,6 +421,198 @@ def _upgrade_env_file(env_path, dry_run, warnings):
     )
 
 
+def _miner_bounds(lines):
+    """Return (header_idx, end_idx) of the [miner] section, end exclusive."""
+    start = None
+    for i, line in enumerate(lines):
+        if re.match(r"^\s*\[miner\]\s*$", line):
+            start = i
+            continue
+        if start is not None and re.match(r"^\s*\[", line):
+            return start, i
+    if start is None:
+        raise ValueError("config has no [miner] section")
+    return start, len(lines)
+
+
+def _remove_toml_array(lines, start, end, key):
+    """Remove `key = [ ... ]` (single- or multi-line) within lines[start:end].
+
+    Returns the number of removed lines (0 when the key wasn't found).
+    """
+    open_re = re.compile(rf"^\s*{key}\s*=\s*\[")
+    for i in range(start, end):
+        if open_re.match(lines[i]):
+            j = i
+            while "]" not in lines[j]:
+                j += 1
+            del lines[i : j + 1]
+            return j + 1 - i
+    return 0
+
+
+def _read_dead_env(env_path):
+    """Read .env, harvesting uncommented dead-miner-var values.
+
+    Returns (harvested: dict, kept_lines: list, dropped_keys: set).
+    Read-only — `_write_stripped_env` performs the actual strip after the
+    config backfill has consumed the harvested values.
+    """
+    harvested, kept, dropped = {}, [], set()
+    if env_path is None or not env_path.is_file():
+        return harvested, kept, dropped
+    for line in env_path.read_text().splitlines():
+        m = DEAD_MINER_ENV_PATTERN.match(line)
+        if not m:
+            kept.append(line)
+            continue
+        commented, key, value = m.group(1), m.group(2), m.group(3).strip()
+        if not commented and key not in harvested:
+            harvested[key] = value
+        dropped.add(key)
+    return harvested, kept, dropped
+
+
+def _write_stripped_env(env_path, kept, dropped, dry_run, warnings):
+    """Strip dead miner env lines from .env (backup first, atomic swap)."""
+    if not dropped:
+        return
+    backup = env_path.parent / ENV_BACKUP_NAME_V02
+    if backup.exists():
+        warnings.append(
+            f"{backup} already exists; leaving {env_path} untouched "
+            "(looks already-migrated)."
+        )
+        return
+    if dry_run:
+        warnings.append(
+            f"[dry-run] would strip dead miner env lines {sorted(dropped)} "
+            f"from {env_path} (no consumer since the v0.2.1-rc miner images)"
+        )
+        return
+    tmp = env_path.parent / (env_path.name + ".tmp")
+    tmp.write_text("\n".join(kept) + "\n")
+    env_path.rename(backup)
+    tmp.rename(env_path)
+    warnings.append(
+        f"stripped dead miner env lines {sorted(dropped)} from {env_path} "
+        f"(backup: {backup.name})"
+    )
+
+
+def _backfill_validators(lines, bounds, miner, env_vals, notes):
+    """Handle the validators key; returns insert lines (possibly empty)."""
+    mstart, mend = bounds
+    env_validators = [
+        u.strip()
+        for u in env_vals.get("QUIP_VALIDATORS", "").split(",")
+        if u.strip()
+    ]
+    if miner.get("validators") == []:
+        removed = _remove_toml_array(lines, mstart, mend, "validators")
+        bounds[1] = mend - removed
+        if not env_validators:
+            notes.append(
+                "removed empty validators list (the miner falls back to "
+                '["ws://quip-validator:9944", "ws://127.0.0.1:9944"] when unset)'
+            )
+    if env_validators and not miner.get("validators"):
+        notes.append("wrote validators from the .env QUIP_VALIDATORS value")
+        return [
+            "validators = ["
+            + ", ".join(_emit_string(u) for u in env_validators)
+            + "]"
+        ]
+    return []
+
+
+def _backfill_faucet(miner, env_vals, notes, warnings):
+    """Handle faucet_url; returns insert lines (possibly empty)."""
+    if "faucet_url" in miner:
+        return []
+    if env_vals.get("QUIP_FAUCET_URL") == "":
+        warnings.append(
+            ".env had QUIP_FAUCET_URL= (auto-fund opt-out); leaving faucet_url "
+            "unset. NOTE: a re-run of this converter would add the testnet "
+            "default — keep faucet_url absent manually if you re-run."
+        )
+        return []
+    url = env_vals.get("QUIP_FAUCET_URL") or FAUCET_TESTNET_URL
+    notes.append(f"added faucet_url = {url}")
+    return [f"faucet_url = {_emit_string(url)}"]
+
+
+def _backfill_rest(lines, bounds, miner, notes, warnings):
+    """Handle rest_port / rest_host; returns insert lines (possibly empty)."""
+    mstart, mend = bounds
+    inserts = []
+    rest_port = miner.get("rest_port")
+    if rest_port in (-1, 80):
+        pat = re.compile(r"^\s*rest_port\s*=")
+        for i in range(mstart, mend):
+            if pat.match(lines[i]):
+                lines[i] = f"rest_port = {CADDY_PROXY_REST_PORT}"
+                break
+        notes.append(
+            f"rest_port {rest_port} -> {CADDY_PROXY_REST_PORT} "
+            f"(Caddy proxies quip-miner:{CADDY_PROXY_REST_PORT})"
+        )
+    elif rest_port is None:
+        inserts.append(f"rest_port = {CADDY_PROXY_REST_PORT}")
+        notes.append(f"added rest_port = {CADDY_PROXY_REST_PORT}")
+    elif rest_port != CADDY_PROXY_REST_PORT:
+        warnings.append(
+            f"[miner].rest_port={rest_port} does not match the Caddy proxy "
+            f"port {CADDY_PROXY_REST_PORT}; edit caddy/Caddyfile or rest_port "
+            "so they agree."
+        )
+    if "rest_host" not in miner:
+        inserts.append('rest_host = "0.0.0.0"')
+        notes.append("added rest_host = 0.0.0.0")
+    elif miner["rest_host"] != "0.0.0.0":
+        warnings.append(
+            f"[miner].rest_host={miner['rest_host']!r} may be unreachable from "
+            "Caddy inside the compose network; 0.0.0.0 is the expected value."
+        )
+    return inserts
+
+
+def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
+    """Backfill an existing v0.2 config for the config-driven miner images.
+
+    The quip-protocol v0.2.1-rc images dropped every configuration env
+    var, so knobs older stacks supplied via QUIP_* env (validators,
+    faucet_url, rest_port) must live in config.toml now. Edits are
+    line-based to preserve operator comments. Returns True when the file
+    was (or, under --dry-run, would be) modified.
+    """
+    miner = parsed["miner"]
+    lines = config_path.read_text().splitlines()
+    bounds = list(_miner_bounds(lines))
+    notes = []
+
+    inserts = _backfill_validators(lines, bounds, miner, env_vals, notes)
+    inserts += _backfill_faucet(miner, env_vals, notes, warnings)
+    inserts += _backfill_rest(lines, bounds, miner, notes, warnings)
+    if inserts:
+        lines[bounds[0] + 1 : bounds[0] + 1] = inserts
+
+    if not notes:
+        return False
+    if dry_run:
+        warnings.append("[dry-run] config backfill: " + "; ".join(notes))
+        return True
+
+    backup = config_path.parent / CONFIG_BACKFILL_BACKUP
+    if not backup.exists():
+        shutil.copy2(config_path, backup)
+    config_path.write_text("\n".join(lines) + "\n")
+    warnings.append(
+        f"config backfill (backup: {backup.name}): " + "; ".join(notes)
+    )
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
@@ -445,7 +663,23 @@ def main():
 
     schema = _detect_schema(parsed, config_path)
     if schema == "v0.2":
-        print(f"{config_path} is already v0.2 ([miner] present). Nothing to do.")
+        # Already the v0.2 [miner] schema — backfill the keys that used to
+        # arrive via QUIP_* env vars (gone as of the v0.2.1-rc images) and
+        # strip the dead lines from .env.
+        warnings = []
+        env_path = None
+        if not args.no_env_file:
+            env_path = args.env_file or data_dir.parent / ".env"
+        env_vals, kept, dropped = _read_dead_env(env_path)
+        changed = _backfill_v02(config_path, parsed, env_vals, args.dry_run, warnings)
+        if env_path is not None:
+            _write_stripped_env(env_path, kept, dropped, args.dry_run, warnings)
+        for w in warnings:
+            sys.stderr.write(f"WARN: {w}\n")
+        if changed:
+            print(f"{config_path}: backfilled config-driven keys (details above).")
+        else:
+            print(f"{config_path} is already config-driven v0.2. Nothing to do.")
         sys.exit(0)
 
     warnings = []

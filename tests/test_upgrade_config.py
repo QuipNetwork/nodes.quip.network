@@ -63,20 +63,21 @@ def test_conversion_produces_valid_v02_config(fixture, tmp_path):
     assert "global" not in parsed
     assert parsed["miner"]["validators"] == ["ws://quip-validator:9944"]
     assert parsed["miner"]["signer_key"] == "/data/keystore.json"
+    assert parsed["miner"]["faucet_url"] == "https://faucet.testnet.quip.network"
     assert "rest_host" in parsed["miner"]
-    assert parsed["miner"]["rest_port"] == 80
+    assert parsed["miner"]["rest_port"] == 8086
 
 
 def test_rest_port_forced_to_caddy_proxy_port(tmp_path):
     """v0.1 deployments with rest_port=443 (miner-terminated TLS) get
-    forced to 80 in v0.2 since Caddy now proxies /api/v1/* to
-    quip-miner:80. Leaving it at 443 produces 502s from Caddy → dashboard
-    indexer can't read miner telemetry."""
+    forced to 8086 in v0.2 since Caddy proxies /api/v1/* to
+    quip-miner:8086. Leaving it at 443 produces 502s from Caddy →
+    dashboard indexer can't read miner telemetry."""
     data_dir = _copy_fixture("qpu", tmp_path)  # qpu fixture has rest_port = 443
     result = _run(data_dir)
     parsed = tomllib.loads((data_dir / "config.toml").read_text())
-    assert parsed["miner"]["rest_port"] == 80
-    assert "forcing [miner].rest_port to 80" in result.stderr
+    assert parsed["miner"]["rest_port"] == 8086
+    assert "forcing [miner].rest_port to 8086" in result.stderr
     assert "rest_port=443" in result.stderr
 
 
@@ -129,15 +130,85 @@ def test_peer_list_drop_warns(tmp_path):
     assert "no P2P mesh" in result.stderr
 
 
-def test_idempotence_on_already_v02(tmp_path):
+def test_backfill_on_already_v02(tmp_path):
+    """Legacy v0.2 configs (env-driven era: empty validators, no
+    faucet_url, rest_port=-1) get backfilled for the config-driven
+    v0.2.1-rc miner images."""
     data_dir = _copy_fixture("already-v0.2", tmp_path)
-    before = sorted(p.name for p in data_dir.iterdir())
 
     result = _run(data_dir)
 
-    assert result.returncode == 0
-    assert "already v0.2" in result.stdout
-    assert sorted(p.name for p in data_dir.iterdir()) == before
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    # Empty list removed entirely → the miner's built-in fallback applies.
+    assert "validators" not in parsed["miner"]
+    assert parsed["miner"]["faucet_url"] == "https://faucet.testnet.quip.network"
+    assert parsed["miner"]["rest_port"] == 8086
+    assert (data_dir / "config.toml.pre-backfill.bak").is_file()
+
+
+def test_backfill_is_idempotent(tmp_path):
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+
+    first = _run(data_dir)
+    assert first.returncode == 0, first.stderr
+    after_first = (data_dir / "config.toml").read_text()
+
+    second = _run(data_dir)
+    assert second.returncode == 0, second.stderr
+    assert "Nothing to do" in second.stdout
+    assert (data_dir / "config.toml").read_text() == after_first
+
+
+def test_backfill_dry_run_leaves_fs_untouched(tmp_path):
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+    before = (data_dir / "config.toml").read_text()
+
+    result = _run(data_dir, "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert (data_dir / "config.toml").read_text() == before
+    assert not (data_dir / "config.toml.pre-backfill.bak").exists()
+    assert "[dry-run] config backfill" in result.stderr
+
+
+def test_backfill_harvests_env_values(tmp_path):
+    """Uncommented QUIP_VALIDATORS / QUIP_FAUCET_URL in .env are written
+    into config.toml before the dead lines are stripped."""
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+    env_path = data_dir.parent / ".env"
+    env_path.write_text(
+        "QUIP_HOSTNAME=:20049\n"
+        "QUIP_VALIDATORS=wss://cpu-1.nodes.quip.network/rpc\n"
+        "QUIP_FAUCET_URL=https://faucet.example.com\n"
+    )
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["miner"]["validators"] == ["wss://cpu-1.nodes.quip.network/rpc"]
+    assert parsed["miner"]["faucet_url"] == "https://faucet.example.com"
+    env_after = env_path.read_text()
+    assert "QUIP_VALIDATORS" not in env_after
+    assert "QUIP_FAUCET_URL" not in env_after
+    assert "QUIP_HOSTNAME=:20049" in env_after
+    assert (data_dir.parent / ".env.pre-config-driven_backup").is_file()
+
+
+def test_backfill_respects_faucet_opt_out(tmp_path):
+    """QUIP_FAUCET_URL= (explicit empty) meant auto-fund opt-out in the
+    env-driven era; the backfill must not add the testnet default."""
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+    env_path = data_dir.parent / ".env"
+    env_path.write_text("QUIP_FAUCET_URL=\n")
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert "faucet_url" not in parsed["miner"]
+    assert "opt-out" in result.stderr
 
 
 def test_readonly_data_dir_emits_chown_hint(tmp_path):
@@ -205,12 +276,14 @@ def test_invalid_toml(tmp_path):
 
 
 def test_double_run_after_migration_is_idempotent(tmp_path):
+    """A fresh v0.1 migration writes a fully config-driven [miner] table,
+    so the v0.2 backfill pass on the second run finds nothing to add."""
     data_dir = _copy_fixture("cuda", tmp_path)
     first = _run(data_dir)
     assert first.returncode == 0
     second = _run(data_dir)
     assert second.returncode == 0
-    assert "already v0.2" in second.stdout
+    assert "Nothing to do" in second.stdout
 
 
 # -- .env migration --------------------------------------------------------

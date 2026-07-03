@@ -2,6 +2,19 @@
 
 ## v0.2 (unreleased)
 
+### Miner is config-driven — `QUIP_*` miner env vars removed
+
+The quip-protocol v0.2.1-rc miner images (which the rolling `:v0.2` registry tag serves) dropped every configuration env var: `data/config.toml` is the single source of truth, and the entrypoint's env contract is `PUID`/`PGID` only. This repo now matches that contract:
+
+- `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, and `QUIP_REST_PORT` are gone from `docker-compose.yml` — the rc-line images silently ignored them. Set `[miner].validators` / `.faucet_url` / `.rest_port` in `data/config.toml` instead. The miner's built-in validator fallback is `["ws://quip-validator:9944", "ws://127.0.0.1:9944"]`, so the colocated-validator default needs no config at all.
+- `caddy/Caddyfile` proxies `/api/v1/*` to `quip-miner:8086` (the image's `rest_port` default) instead of the old forced `:80`.
+- First-run configs are seeded from repo-owned templates (`config/quip-miner.{cpu,cuda}.toml`, bind-mounted over `/app/quip-miner.docker.toml`) — identical to upstream's except `faucet_url` is set to the canonical testnet faucet so first-boot auto-funding keeps working.
+- `make localdev` copies `config/localdev.<profile>.toml` to `data/config.toml` before bringing the stack up (the localdev stack is self-contained by design); the old `QUIP_FAUCET_URL` env override in `docker-compose.localdev.yml` is gone.
+- `make updateconfig` now also handles already-v0.2 configs: it backfills `faucet_url`, `rest_port` (→ 8086), `rest_host`, and validators (harvesting uncommented `QUIP_VALIDATORS` / `QUIP_FAUCET_URL` values from `.env` first), removes an explicitly-empty `validators = []` list so the built-in fallback applies, and strips the dead `QUIP_*` miner lines from `.env`. Backups: `data/config.toml.pre-backfill.bak` and `.env.pre-config-driven_backup`.
+- `DWAVE_API_KEY` remains an env var — it's read by the QPU layer (D-Wave Ocean SDK), which also supports `~/.config/dwave/dwave.conf` as a file-based alternative. `CUDA_MPS_*` remain (NVIDIA runtime, no file equivalent).
+
+**Operator impact**: existing v0.2 deployments must run `make updateconfig` (or hand-edit `data/config.toml`) — their configs predate the config-driven images and rely on env overrides that no longer exist. Without the backfill, REST stays disabled (`rest_port = -1`) and auto-funding is off.
+
 ### Explicit per-service env contract (no more blanket `env_file`)
 
 `docker-compose.yml` no longer attaches `env_file: .env` to every service. `.env` is now compose's interpolation source only: a variable reaches a container solely when an `environment:` entry wires it through. Previously every `.env` entry — including `POSTGRES_PASSWORD`, `DWAVE_API_KEY`, and `ZEROSSL_API_KEY` — was injected into every container, whether it used them or not.
@@ -20,7 +33,7 @@ Related cleanups in the same pass:
 
 ### Testnet auto-fund on first boot
 
-`QUIP_FAUCET_URL` now defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`. On a fresh `make testnet` (or `docker compose --profile cpu up -d`) the miner entrypoint generates the keystore, calls the testnet faucet to register the new account on-chain and fund it, and starts mining — no manual `quip-miner bootstrap` step required. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out if you pre-fund the account yourself. `docker-compose.override.yml` (used by `make localdev`) flips this to the colocated dev faucet, so localdev continues to use `//Alice` via the bundled `quip-faucet` sidecar.
+The seeded `data/config.toml` sets `faucet_url = "https://faucet.testnet.quip.network"` (via the repo's `config/quip-miner.{cpu,cuda}.toml` templates). On a fresh `make testnet` (or `docker compose --profile cpu up -d`) the miner generates the keystore, calls the testnet faucet to register the new account on-chain and fund it, and starts mining — no manual `quip-miner bootstrap` step required. Comment out `faucet_url` in `data/config.toml` to opt out if you pre-fund the account yourself. `make localdev` copies a config pointing at the colocated dev faucet, so localdev continues to use `//Alice` via the bundled `quip-faucet` sidecar.
 
 ### `make updateconfig` also migrates `.env`
 
@@ -59,7 +72,7 @@ The `validator-cpu` and `validator-cuda` profiles are gone. The `cpu` and `cuda`
 - `--profile faucet` still layers additively on top.
 - `Makefile`'s `PROFILE` default is now `cpu` (was `validator-cpu`).
 - TLS is best-effort: if Caddy can provision a cert (HTTP-01 on `:80` or DNS-01), the public RPC is served at `wss://<host>/rpc`. Without it the validator still runs and is reachable on the compose network — only the public WSS endpoint depends on the cert.
-- Operators who want a miner-only host pointing at a remote validator still can — set `QUIP_VALIDATORS` in `.env` to the remote WS URL — but it's no longer the default topology.
+- Operators who want a miner-only host pointing at a remote validator still can — set `[miner].validators` in `data/config.toml` to the remote WS URL — but it's no longer the default topology.
 
 ### Upgrading from v0.1 — config migration required
 
@@ -90,7 +103,7 @@ The full operator runbook (stop v0.1 containers, pull v0.2, convert config, choo
 2. Moves every entry in `data/` (except an existing `.v0.1_backup/`) into `data/.v0.1_backup/`.
 3. Writes a fresh `data/config.toml` in v0.2 shape, with values harvested from the backed-up file:
    - `node_name`, `public_host`, `public_port`, `rest_host`, `rest_port`, `log_level`, `node_log` carry over.
-   - `validators` defaults to `["ws://quip-validator:9944"]` (colocated validator — the common case for `nodes.quip.network`). Override via `.env`'s `QUIP_VALIDATORS` for miner-only or remote deploys.
+   - `validators` defaults to `["ws://quip-validator:9944"]` (colocated validator — the common case for `nodes.quip.network`). Edit `[miner].validators` afterwards for miner-only or remote deploys.
    - `signer_key` defaults to `"/data/keystore.json"`.
    - All preserved backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, ...) are re-serialized verbatim from the parsed dict.
 4. Prints operator-actionable warnings to stderr: dropped `port`/`listen` (semantics flipped), dropped `peer[]` (no P2P mesh anymore), `[telemetry_api]` removed, `[dwave].token` preserved but DWAVE_API_KEY in environment is now the convention.

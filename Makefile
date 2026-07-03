@@ -102,6 +102,11 @@ testnet: require-env require-mps
 # miner bootstraps (so DefaultTopology + the difficulty are live when the
 # miner queries them).
 localdev: require-env down clean-chain
+	# Localdev is config-driven: replace data/config.toml with the dev
+	# variant (colocated faucet) before the miner boots. The localdev
+	# stack is self-contained, so clobbering the config is by design.
+	mkdir -p data
+	cp config/localdev.$(PROFILE).toml data/config.toml
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) pull
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) up -d quip-validator quip-faucet
 	@echo "waiting for validator to produce blocks..."

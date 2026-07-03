@@ -42,9 +42,11 @@
 		reverse_proxy quip-faucet:8087
 	}
 
-	# Miner telemetry / v1 REST.
+	# Miner telemetry / v1 REST. 8086 is the miner's rest_port default —
+	# set in config/quip-miner.{cpu,cuda}.toml, seeded into data/config.toml
+	# on first run. Keep the two in sync.
 	handle /api/v1/* {
-		reverse_proxy quip-miner:80
+		reverse_proxy quip-miner:8086
 	}
 
 	# Dashboard SPA + its /api/telemetry, /api/health, etc.

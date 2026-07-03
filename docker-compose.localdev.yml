@@ -36,9 +36,10 @@
 #          -v $(pwd)/scripts/seed-advantage2-topology.py:/seed.py:ro \
 #          --entrypoint python3 cpu /seed.py --sudo-key //Alice
 #   4. The cpu/cuda miner self-bootstraps on startup: it registers itself in
-#      QuantumPow.Miners and faucet-funds via QUIP_FAUCET_URL (the colocated
-#      dev faucet, set below). Topology must already be seeded (step 3) or the
-#      self-bootstrap retry loop fails.
+#      QuantumPow.Miners and faucet-funds via the faucet_url in
+#      data/config.toml (make localdev copies config/localdev.<profile>.toml
+#      there, pointing at the colocated dev faucet). Topology must already be
+#      seeded (step 3) or the self-bootstrap retry loop fails.
 
 services:
   quip-validator:
@@ -61,15 +62,15 @@ services:
       - --no-mdns
       - --unsafe-force-node-key-generation
 
+  # The dev-faucet flip lives in config, not env: `make localdev` copies
+  # config/localdev.<profile>.toml to data/config.toml (faucet_url =
+  # http://quip-faucet:8087) before bringing the stack up. The miner has
+  # no configuration env vars as of the quip-protocol v0.2.1-rc line.
   cpu:
     container_name: quip-cpu-localdev
-    environment:
-      QUIP_FAUCET_URL: http://quip-faucet:8087
 
   cuda:
     container_name: quip-cuda-localdev
-    environment:
-      QUIP_FAUCET_URL: http://quip-faucet:8087
 
   quip-faucet:
     container_name: quip-faucet-localdev

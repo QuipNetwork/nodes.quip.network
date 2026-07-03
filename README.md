@@ -90,10 +90,13 @@ python3 scripts/upgrade-config.py data
 Defaults to `./data`; override with `DATA=/path/to/data`. The converter:
 - moves every entry in `data/` (including your old `config.toml`) into `data/.v0.1_backup/`
 - writes a fresh `data/config.toml` in v0.2 shape, carrying over `node_name`, `public_host`, `public_port`, `rest_host`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
-- forces `rest_port = 80` (v0.2 Caddy proxies `/api/v1/*` to `quip-miner:80`; v0.1 deployments using miner-terminated TLS often had `rest_port = 443`, which would leave Caddy's upstream unreachable)
+- forces `rest_port = 8086` (v0.2 Caddy proxies `/api/v1/*` to `quip-miner:8086`; v0.1 deployments using miner-terminated TLS often had `rest_port = 443`, which would leave Caddy's upstream unreachable)
 - defaults `validators = ["ws://quip-validator:9944"]` — the local bundled validator. It peers with the testnet bootnodes via libp2p on `:30333`, so this entry is correct out of the box and shouldn't be edited
+- sets `faucet_url = "https://faucet.testnet.quip.network"` so the miner's first-boot self-bootstrap (register + fund) works
 - defaults `signer_key = "/data/keystore.json"` — the entrypoint auto-generates the hybrid keystore on first start
 - warns loudly about dropped `[global].port` / `[global].listen` (semantics flipped from QUIC peer to telemetry REST — the v0.2 loader would silently alias these, but that risks exposing the REST API on what used to be the peer port)
+
+Already on the v0.2 config schema? Run it anyway: on a `[miner]`-schema config it backfills the keys that used to arrive via the now-removed `QUIP_*` env vars (`validators`, `faucet_url`, `rest_port`, `rest_host`), harvesting any uncommented values from your `.env` before stripping those dead lines (backups: `data/config.toml.pre-backfill.bak`, `.env.pre-config-driven_backup`).
 - migrates `.env` alongside (sibling of `data/`): backs up the current file to `.env.v0.1_backup`, drops stale `QUIP_NODE_URL` / `QUIP_NODE_TOKEN` lines (commented or uncommented), and appends a commented `QUIP_VALIDATOR_RPC_URLS` placeholder. Use `--no-env-file` (or `make updateconfig DATA=data` with the env override unset) to skip the `.env` step.
 
 Idempotent: re-running on an already-converted dir exits with "nothing to do".
@@ -105,7 +108,7 @@ Caddy auto-provisions a Let's Encrypt cert for `QUIP_HOSTNAME` in production mod
 | Challenge | What you need | When to pick |
 |---|---|---|
 | **HTTP-01** (default) | Port **80** reachable from the public internet | Simplest. Works out of the box with `caddy:2-alpine`. Required if you can't or won't share DNS API credentials with the host. |
-| **DNS-01** | A custom Caddy image with your DNS provider plugin compiled in (`caddy-dns/cloudflare`, `caddy-dns/route53`, `caddy-dns/digitalocean`, …) **and** DNS-API credentials in `.env` | Required if your host can't bind `:80` (firewalled, port already taken, behind a NAT without port-forward). Also supports wildcard certs. |
+| **DNS-01** | A custom Caddy image with your DNS provider plugin compiled in (`caddy-dns/cloudflare`, `caddy-dns/route53`, `caddy-dns/digitalocean`, …) **and** DNS-API credentials wired into the `caddy` service via a `docker-compose.override.yml` `environment:` entry (values can live in `.env`, but must be wired through — `.env` alone doesn't reach containers) | Required if your host can't bind `:80` (firewalled, port already taken, behind a NAT without port-forward). Also supports wildcard certs. |
 
 For HTTP-01, no extra config — just make sure `:80` is open and `CERT_EMAIL` is set in `.env`. For DNS-01, build a Caddy image with your provider's plugin (see [Caddy's DNS challenge docs](https://caddyserver.com/docs/automatic-https#dns-challenge)), swap the `image:` line for the `caddy` service in `docker-compose.yml`, and add the appropriate `tls { dns <provider> }` block in `caddy/Caddyfile`. The plumbing is out of scope for this repo because the credential surface is provider-specific.
 
@@ -122,7 +125,7 @@ docker compose --profile cuda up -d
 docker compose --profile cpu --profile faucet up -d
 ```
 
-Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. The miner self-bootstraps on startup: it funds the new account via the canonical testnet faucet (`https://faucet.testnet.quip.network`, wired by default) and registers it in the chain's `QuantumPow.Miners` map before it starts producing proofs. Set `QUIP_FAUCET_URL=` (empty) in `.env` to opt out of faucet-funding if you've pre-funded the account yourself.
+Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. The miner self-bootstraps on startup: it funds the new account via the canonical testnet faucet (`https://faucet.testnet.quip.network`, set as `faucet_url` in the seeded `data/config.toml`) and registers it in the chain's `QuantumPow.Miners` map before it starts producing proofs. Comment out `faucet_url` in `data/config.toml` (and restart) to opt out of faucet-funding if you've pre-funded the account yourself.
 
 Check it came up cleanly:
 
@@ -206,6 +209,8 @@ Also set:
 
 The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-protocol v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000).
 
+> **Note:** `.env` is docker compose's interpolation source, not a blanket container env file. A variable only reaches a container when `docker-compose.yml` explicitly wires it through an `environment:` entry — custom variables you add to `.env` are invisible to containers unless you also wire them via a `docker-compose.override.yml`.
+
 ### 4. (Recommended) Tune the host kernel
 
 Apply BBR + fair-queueing + no slow-start-after-idle on the host — improves throughput for long-lived TCP and is required for BBR's packet pacing:
@@ -245,7 +250,7 @@ make localdev                           # full flow: wipe + start + seed topolog
 docker compose -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d
 ```
 
-The opt-in `docker-compose.localdev.yml` swaps the validator command to `--chain=dev`, pulls `quip-faucet` into the `cpu`/`cuda` profiles, and points the miner's `QUIP_FAUCET_URL` at the local faucet. **It is not auto-loaded** — the filename was deliberately moved off the magic `docker-compose.override.yml` to keep plain `docker compose` invocations on the testnet path. If you previously relied on the override auto-applying, switch to `make localdev` or pass the explicit `-f` flags.
+The opt-in `docker-compose.localdev.yml` swaps the validator command to `--chain=dev` and pulls `quip-faucet` into the `cpu`/`cuda` profiles; `make localdev` also copies `config/localdev.<profile>.toml` to `data/config.toml` so the miner's `faucet_url` points at the local faucet. **It is not auto-loaded** — the filename was deliberately moved off the magic `docker-compose.override.yml` to keep plain `docker compose` invocations on the testnet path. If you previously relied on the override auto-applying, switch to `make localdev` or pass the explicit `-f` flags.
 
 **Monitor your node at [http://localhost:20049/](http://localhost:20049/)** — or `https://<QUIP_HOSTNAME>/` (and `:20049`) when running on a remote machine with TLS.
 
@@ -453,8 +458,10 @@ docker compose --profile cpu up -d --force-recreate
 | `data/validator-data/` | Validator base path (keystore, db, libp2p key; gitignored) |
 | `docs/testnet-deployment.md` | Operator host setup for canonical testnet bootnode validators |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle) |
-| `.env` | QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_KEY, validator + faucet env (not checked in) |
+| `.env` | Compose interpolation source: QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_KEY, tags + knobs (not checked in) |
 | `env.example` | Template for `.env` |
+| `config/quip-miner.{cpu,cuda}.toml` | Miner first-run config templates (testnet faucet_url baked in), mounted over the image's template path |
+| `config/localdev.{cpu,cuda}.toml` | Localdev miner configs; `make localdev` copies the profile's variant to `data/config.toml` |
 | `dashboard-data/` | Dashboard auxiliary state (bind mount, gitignored) |
 | `quip-pgdata` | Docker named volume for Postgres data |
 | `quip-caddy-data` | Docker named volume for Caddy's certs + state |

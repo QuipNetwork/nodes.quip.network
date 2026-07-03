@@ -200,7 +200,9 @@ Edit `.env`:
 ```bash
 # DNS name the droplet answers on. Caddy uses this for automatic Let's Encrypt
 # TLS; must match the A record from step 2 and be reachable on port 80.
-QUIP_HOSTNAME=mynode.example.com
+# The comma-separated form is required in production so one cert covers both
+# :443 (default HTTPS) and :20049 (the Quip API port).
+QUIP_HOSTNAME=mynode.example.com, mynode.example.com:20049
 
 # Email registered with Let's Encrypt (required when QUIP_HOSTNAME is a DNS name).
 CERT_EMAIL=admin@example.com
@@ -213,6 +215,8 @@ DWAVE_API_KEY=
 # POSTGRES_PASSWORD=<strong-password>
 ```
 
+`.env` is docker compose's interpolation source, not a blanket container env file — a variable only reaches a container when `docker-compose.yml` wires it through an `environment:` entry (see `env.example` for the documented knobs).
+
 ### 4.5 Start the node
 
 ```bash
@@ -221,20 +225,19 @@ docker compose --profile cpu up -d
 
 # CUDA GPU node
 docker compose --profile cuda up -d
-
-# QPU node
-docker compose --profile qpu up -d
 ```
+
+QPU / D-Wave mining runs under the `cpu` profile — there is no separate `qpu` profile in v0.2. Uncomment the `[qpu]` and `[dwave]` sections in `data/config.toml` and set `DWAVE_API_KEY` in `.env`; the miner's mode resolution picks it up on the next restart.
 
 Each command brings up the selected node plus `quip-dashboard`, `quip-postgres`, and `quip-caddy`. Caddy provisions a Let's Encrypt cert for `QUIP_HOSTNAME` on first startup and serves both the dashboard SPA (at `/`) and node REST (at `/api/v1/*`) over HTTPS. Open your browser to `https://mynode.example.com/`.
 
 Caddy's certs persist in the `quip-caddy-data` named volume; renewals happen automatically (no cron or sidecar needed).
 
-To run without the dashboard, use the `-nodash` profile variant (`cpu-nodash`, `cuda-nodash`, `qpu-nodash`) — this skips the dashboard, Postgres, and Caddy. `cron.sh` detects which variant is running and preserves it on update.
+The dashboard, Postgres, and Caddy are always bundled with the `cpu` and `cuda` profiles in v0.2 — the v0.1 `-nodash` profile variants no longer exist.
 
 ### 4.6 Set up auto-updates
 
-Add an hourly cron job to check for new images and recreate the container only when the digest changes. Replace `<profile>` with your mode (`cpu`, `cuda`, or `qpu`):
+Add an hourly cron job to check for new images and recreate the container only when the digest changes. Replace `<profile>` with your mode (`cpu` or `cuda`):
 
 ```bash
 crontab -e
