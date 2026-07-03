@@ -185,9 +185,11 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `QUIP_NODE_TOKEN` | dropped | Bearer-token access control is now deployment-layer. |
 | `QUIP_HOSTNAME` | unchanged (semantics expanded) | Drives Caddy listen + TLS. Comma-separated form (`host, host:20049`) needed for prod TLS. |
 | `QUIP_VALIDATORS` | new | Optional CLI override for `[miner].validators`. Defaults to `ws://quip-validator:9944` in docker-compose. |
-| `QUIP_SIGNER_KEY`, `QUIP_REST_PORT`, `QUIP_REST_HOST` | new | CLI overrides for the corresponding `[miner]` keys. |
+| `QUIP_REST_PORT` | new | CLI override for `[miner].rest_port`. Compose pins it to 80 so Caddy's `quip-miner:80` upstream works. (`QUIP_SIGNER_KEY`/`QUIP_REST_HOST` exist upstream but compose no longer sets them — the entrypoint defaults already match.) |
 | `QUIP_FAUCET_URL` | new | Defaults to `https://faucet.testnet.quip.network` in `docker-compose.yml`; `docker-compose.localdev.yml` overrides to `http://quip-faucet:8087`. |
-| `QUIP_VALIDATOR_TAG`, `QUIP_VALIDATOR_RPC_URLS`, `QUIP_FAUCET_TAG`, `QUIP_FAUCET_NODE_URL`, `QUIP_FAUCET_KEY`, `QUIP_FAUCET_RATE_LIMIT_SECONDS`, `QUIP_FAUCET_ALLOW_ANY_CHAIN`, `VALIDATOR_NAME`, `SUBSTRATE_BOOTNODES`, `CERT_EMAIL`, `ZEROSSL_API_KEY`, `QUIP_MINER_CPUSET`, `QUIP_CHAIN_SPEC`, `QUIP_DASHBOARD_TAG` | new | See `env.example` for inline docs. |
+| `QUIP_VALIDATOR_TAG`, `QUIP_VALIDATOR_RPC_URLS`, `QUIP_FAUCET_TAG`, `QUIP_FAUCET_NODE_URL`, `QUIP_FAUCET_KEY`, `QUIP_FAUCET_RATE_LIMIT_SECONDS`, `QUIP_FAUCET_ALLOW_ANY_CHAIN`, `VALIDATOR_NAME`, `CERT_EMAIL`, `ZEROSSL_API_KEY`, `QUIP_MINER_CPUSET`, `QUIP_CHAIN_SPEC`, `QUIP_DASHBOARD_TAG` | new | See `env.example` for inline docs. |
+
+`.env` is compose's interpolation source only — there is no blanket `env_file:` anywhere in `docker-compose.yml`, so a variable reaches a container only when an `environment:` entry wires it through. `SUBSTRATE_BOOTNODES` was dropped entirely (compose can't split one env var into multiple `--bootnodes` argv tokens; use a `docker-compose.override.yml`).
 
 The converter (`scripts/upgrade-config.py`) migrates `.env` alongside `data/config.toml`: backs up to `.env.v0.1_backup`, strips `QUIP_NODE_URL`/`QUIP_NODE_TOKEN` (commented or uncommented), appends a commented `QUIP_VALIDATOR_RPC_URLS` placeholder.
 

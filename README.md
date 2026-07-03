@@ -55,7 +55,7 @@ git pull origin v0.2
 
 Review `docker-compose.yml` and `env.example` against your local `.env`:
 
-- **New env vars** you'll want to set before the first start: `QUIP_VALIDATOR_TAG`, `QUIP_FAUCET_TAG`, `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `SUBSTRATE_BOOTNODES`, `CERT_EMAIL`.
+- **New env vars** you'll want to set before the first start: `QUIP_VALIDATOR_TAG`, `QUIP_FAUCET_TAG`, `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `CERT_EMAIL`.
 - **Removed env vars** — delete these from your `.env` if present (they're no longer consumed by v0.2 and only clutter the file):
   - `QUIP_NODE_URL` — superseded by `QUIP_VALIDATOR_RPC_URLS` (now drives both chain indexing and the miner REST surface; comma-separated list of substrate WS URLs).
   - `QUIP_NODE_TOKEN` — removed; bearer-token access control moved out of the dashboard image into the deployment layer (reverse-proxy auth, network policy).
@@ -202,7 +202,7 @@ Also set:
 - `CERT_EMAIL` — required when running in TLS / production mode.
 - `DWAVE_API_KEY` — required only for QPU / D-Wave mining.
 - `POSTGRES_PASSWORD` — optional; defaults to `quip`. Postgres isn't published to the host, so the default is safe for local use.
-- `QUIP_VALIDATOR_TAG`, `VALIDATOR_NAME`, `SUBSTRATE_BOOTNODES` — see `env.example` for the validator and faucet sections.
+- `QUIP_VALIDATOR_TAG`, `VALIDATOR_NAME` — see `env.example` for the validator and faucet sections.
 
 The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-protocol v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000).
 
@@ -321,7 +321,7 @@ The compose stack joins the canonical **Quip Testnet** by default. Identity:
 
 #### Joining
 
-A fresh `docker compose --profile cpu up -d` boots straight onto Quip Testnet — the spec is committed at `chain-specs/quip-testnet.json`, the v0.2 validator image is pinned by default, and the bootnode addresses are embedded in the spec (no `SUBSTRATE_BOOTNODES` env var needed unless you're overriding for a private network).
+A fresh `docker compose --profile cpu up -d` boots straight onto Quip Testnet — the spec is committed at `chain-specs/quip-testnet.json`, the v0.2 validator image is pinned by default, and the bootnode addresses are embedded in the spec (no extra bootnode configuration needed unless you're overriding for a private network).
 
 #### Verifying the spec
 
@@ -370,7 +370,7 @@ Set `QUIP_CHAIN_SPEC` in `.env` to flip the validator to the `quip-local` preset
 QUIP_CHAIN_SPEC=./data/chain-spec.json
 ```
 
-The local preset has //Alice/Bob/etc. pre-funded so the faucet works against it without `QUIP_FAUCET_ALLOW_ANY_CHAIN=1`. Bootnodes are empty in the local spec; provide them via `SUBSTRATE_BOOTNODES` if you're joining a private network.
+The local preset has //Alice/Bob/etc. pre-funded so the faucet works against it without `QUIP_FAUCET_ALLOW_ANY_CHAIN=1`. Bootnodes are empty in the local spec; if you're joining a private network, append `--bootnodes=<multiaddr>` entries to the validator `command:` via a `docker-compose.override.yml` (compose can't split one env var into multiple argv tokens, so there is no env knob for this).
 
 ### Faucet
 
