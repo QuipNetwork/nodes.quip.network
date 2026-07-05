@@ -64,6 +64,15 @@ services:
     # this is what the entrypoint actually sees, unlike `cpus:` (CFS quota).
     # Operators with dedicated miner hosts override with e.g. QUIP_MINER_CPUSET=0-15.
     cpuset: ${QUIP_MINER_CPUSET:-0}
+    # Each SA worker streams samples through a POSIX shared-memory ring
+    # (~75 MiB/worker at the Advantage2 topology's max reads). Docker's
+    # 64 MiB /dev/shm default can't back even one worker's ring, so the
+    # miner dies with SIGBUS (exitcode=-7) — reported on a 12-core host,
+    # but the default single-CPU config hits it too. tmpfs is allocated
+    # lazily, so a generous cap costs nothing until written. (The cuda
+    # service instead sets ipc:host, which shares the host's /dev/shm.)
+    # See quip-protocol v0.2.1-rc45.
+    shm_size: "2gb"
     environment:
       <<: *runtime-user
       # The one config-adjacent secret still delivered by env — read by the

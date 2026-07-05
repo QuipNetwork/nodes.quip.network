@@ -2,6 +2,12 @@
 
 ## v0.2 (unreleased)
 
+### CPU miner `shm_size` raised to avoid SIGBUS
+
+The `cpu` miner service now sets `shm_size: "2gb"`. Each SA worker streams samples through a POSIX shared-memory ring (~75 MiB per worker at the Advantage2 topology's maximum reads), which overflows Docker's 64 MiB `/dev/shm` default. Because tmpfs is sparse, the allocation succeeds and the miner instead dies with **SIGBUS (`exitcode=-7`)** when a worker first writes an unbackable page — reported on a 12-core host, but the default single-CPU config exceeds 64 MiB too. The cap is not a reservation (tmpfs pages are consumed only when written), so the generous value is free. The `cuda` service is unaffected: it already sets `ipc: host`, sharing the host's `/dev/shm`. Matches quip-protocol v0.2.1-rc45.
+
+**Operator impact**: none for compose users — the new default applies on `docker compose up`. Operators running the miner image directly with `docker run` must add `--shm-size=2g` themselves.
+
 ### Miner is config-driven — `QUIP_*` miner env vars removed
 
 The quip-protocol v0.2.1-rc miner images (which the rolling `:v0.2` registry tag serves) dropped every configuration env var: `data/config.toml` is the single source of truth, and the entrypoint's env contract is `PUID`/`PGID` only. This repo now matches that contract:
