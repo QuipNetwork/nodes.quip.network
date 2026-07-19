@@ -17,3 +17,9 @@ nodes.json
 *.bak
 __pycache__/
 .pytest_cache/
+
+# Local agent tooling — beads issue graph stays out of the shared branch
+.beads/
+.agents/
+.codex/
+CLAUDE.md
