@@ -10,6 +10,19 @@ x-runtime-user: &runtime-user
   PUID: ${PUID:-1000}
   PGID: ${PGID:-1000}
 
+# Bounded container logs, applied to every long-lived service. Docker's
+# json-file default has NO max-size, so a node left running accumulates an
+# unbounded log for the life of the container — the miner is the worst
+# offender, and on WSL2 the growing file degrades host I/O well before the
+# disk fills. Capping at max-size x max-file per service bounds the total.
+# Raise QUIP_LOG_MAX_SIZE when you need deeper history for an incident.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${QUIP_LOG_MAX_SIZE:-32m}
+    # Quoted: docker rejects max-file as a bare int.
+    max-file: "${QUIP_LOG_MAX_FILE:-5}"
+
 # Shared dashboard configuration. The dashboard is always present alongside
 # every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
 x-dashboard: &dashboard
@@ -33,6 +46,7 @@ x-dashboard: &dashboard
     PORT: "3001"
     RUN_SERVER: "true"
     RUN_INDEXER: "true"
+  logging: *default-logging
   volumes:
     - ./dashboard-data:/data
   # Caddy proxies quip-dashboard:3001. An explicit alias — not container_name
@@ -73,6 +87,20 @@ services:
     # service instead sets ipc:host, which shares the host's /dev/shm.)
     # See quip-protocol v0.2.1-rc45.
     shm_size: "2gb"
+    # STOPGAP (v0.2). The miner's working set grows without bound during a
+    # round: a 27.1 GiB peak on a 32 GiB host triggered two *global* OOM-kills,
+    # taking the validator and dashboard down with it. This cap converts that
+    # host-wide failure into a single container kill that `restart:
+    # unless-stopped` recovers from — it does not fix the leak, which is
+    # scheduled for v0.3. Until then the operator-side mitigation is a periodic
+    # reboot (or `docker compose restart cpu`) between rounds.
+    #
+    # NOTE: the 2 GiB shm ring above is tmpfs, and tmpfs pages are charged to
+    # this same cgroup — so this is ~14 GiB of heap plus the ring, not 16 + 2.
+    # Size it below total RAM with headroom for the colocated validator,
+    # postgres and dashboard; raise it only on a dedicated miner host.
+    mem_limit: ${QUIP_MINER_MEM_LIMIT:-16g}
+    logging: *default-logging
     environment:
       <<: *runtime-user
       # The one config-adjacent secret still delivered by env — read by the
@@ -111,6 +139,7 @@ services:
     # these only engage on a native Linux GPU host.
     ipc: host
     pid: host
+    logging: *default-logging
     environment:
       <<: *runtime-user
       # The one config-adjacent secret still delivered by env — read by the
@@ -162,6 +191,7 @@ services:
       - cpu
       - cuda
     environment: *runtime-user
+    logging: *default-logging
     volumes:
       - ./data/validator-data:/data
       # Chain spec selector. Defaults to the canonical Quip Testnet spec;
@@ -216,6 +246,7 @@ services:
     restart: unless-stopped
     profiles:
       - faucet
+    logging: *default-logging
     environment:
       <<: *runtime-user
       QUIP_FAUCET_ALLOW_ANY_CHAIN: ${QUIP_FAUCET_ALLOW_ANY_CHAIN:-0}
@@ -247,6 +278,7 @@ services:
     profiles:
       - cpu
       - cuda
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-quip}
       POSTGRES_USER: ${POSTGRES_USER:-quip}
@@ -268,6 +300,7 @@ services:
     profiles:
       - cpu
       - cuda
+    logging: *default-logging
     environment:
       QUIP_HOSTNAME: ${QUIP_HOSTNAME:-:20049}
       # ACME registration email. Operators set CERT_EMAIL in .env before
