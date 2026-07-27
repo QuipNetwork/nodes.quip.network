@@ -174,7 +174,7 @@ services:
               count: all
               capabilities: [gpu]
 
-  # Substrate-based block-producing validator (quip-protocol-rs). Bundled
+  # Substrate-based block-producing validator (quip-validator). Bundled
   # into both the cpu and cuda profiles by default — every operator runs a
   # local validator. TLS is best-effort: with a real QUIP_HOSTNAME + reachable
   # port 80 (or DNS-01 creds), Caddy fronts the RPC at wss://<host>/rpc. With
@@ -183,7 +183,7 @@ services:
   # Inbound 30333/tcp and 30333/udp must be reachable from the public internet
   # for libp2p peering.
   quip-validator:
-    image: registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.2}
+    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.2}
     pull_policy: always
     container_name: quip-validator
     restart: unless-stopped

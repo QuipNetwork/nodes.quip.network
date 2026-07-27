@@ -12,9 +12,9 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 
 ## Invariants (do not violate)
 
-- **No operator key generation.** Operator mnemonics + libp2p node keys are derived once via `scripts/derive-operator-keys.sh` in `quip-protocol-rs`. This repo only *uses* keys mounted at `data/keystore.json` and `data/node-key`.
+- **No operator key generation.** Operator mnemonics + libp2p node keys are derived once via `scripts/derive-operator-keys.sh` in `quip-validator`. This repo only *uses* keys mounted at `data/keystore.json` and `data/node-key`.
 - **No secrets in git.** `data/` content (keystores, mnemonics, node keys, signing.json) is gitignored. The `tests/fixtures/v0.1/qpu/data/config.toml` D-Wave token is `DEV-FIXTURE-FAKE-TOKEN-DO-NOT-USE` — never use a real token in fixtures.
-- **Do not tag v0.2.0** in `quip-protocol-rs` from this session. That's a coordinated release step.
+- **Do not tag v0.2.0** in `quip-validator` from this session. That's a coordinated release step.
 - **No direct pushes to `main`.** Work on `v0.2` (or a feature branch). MR !4 is the v0.2 → main integration MR.
 - **No `Co-Authored-By: Claude` trailers.** This repo follows the global CLAUDE.md commit standard — no LLM attribution in commits.
 - **Use `trash` instead of `rm -rf`** (hook-enforced for `rm -rf`). Falls back to `rm -rf` on hosts without `trash` installed (CI/Linux servers); the macOS workflow expects `trash` for recoverable deletes.
@@ -29,7 +29,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | `caddy/Caddyfile` | Reverse proxy + auto-TLS. Routes `/rpc` → `quip-validator:9944`, `/api/faucet/*` → `quip-faucet:8087`, `/api/v1/*` → `quip-miner:8086`, `/` → `quip-dashboard:3001`. |
 | `config/quip-miner.{cpu,cuda}.toml` | Miner first-run config templates, forked from quip-protocol's docker templates with the testnet `faucet_url` filled in. Bind-mounted over `/app/quip-miner.docker.toml`; the entrypoint copies one to `data/config.toml` when that file doesn't exist. |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs (colocated dev faucet). `make localdev` copies the profile's variant to `data/config.toml` before bringing the stack up. |
-| `chain-specs/quip-testnet.json` | Mirrored from `quip-protocol-rs` via `build-spec --chain quip-testnet --raw`. Re-export when upstream genesis changes. |
+| `chain-specs/quip-testnet.json` | Mirrored from `quip-validator` via `build-spec --chain quip-testnet --raw`. Re-export when upstream genesis changes. |
 | `chain-specs/quip-testnet.json.sha256` | SHA-256 checksum sidecar — always update alongside the spec. |
 | `data/config.toml` | Canonical v0.2 `[miner]` template (gitignored copy lives at operator's `data/config.toml`). |
 | `data/config.cpu.toml`, `data/config.cuda.toml` | Mode-specific templates operators `cp` to `data/config.toml` on first run. |
@@ -86,10 +86,10 @@ The `cuda` service is wired for [NVIDIA MPS](https://docs.nvidia.com/deploy/mps/
 
 ### Chain spec drift
 
-`chain-specs/quip-testnet.json` mirrors the upstream `quip-protocol-rs` v0.2 image's baked-in spec. If `shasum -a 256 -c chain-specs/quip-testnet.json.sha256` fails after an upstream image bump, re-export:
+`chain-specs/quip-testnet.json` mirrors the upstream `quip-validator` v0.2 image's baked-in spec. If `shasum -a 256 -c chain-specs/quip-testnet.json.sha256` fails after an upstream image bump, re-export:
 
 ```bash
-docker run --rm registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2 \
+docker run --rm registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
   build-spec --chain quip-testnet --raw > chain-specs/quip-testnet.json
 (cd chain-specs && shasum -a 256 quip-testnet.json > quip-testnet.json.sha256)
 ```
@@ -133,7 +133,7 @@ This is the comprehensive record of what changed between the v0.1 P2P-mesh node 
 
 v0.1 was a P2P mesh of `quip-node` processes. Each node owned its own libp2p stack, served its own TLS-terminated REST + WebSocket surface, and propagated work via QUIC peer connections. Mining proofs flowed peer-to-peer in a gossip overlay.
 
-v0.2 replaces the P2P mesh with a **substrate parachain** (`quip-protocol-rs`). Each operator now runs:
+v0.2 replaces the P2P mesh with a **substrate parachain** (`quip-validator`). Each operator now runs:
 - a **substrate validator** (`quip-network-node`) that participates in consensus via libp2p `:30333` and serves substrate RPC at `:9944` (Caddy-fronted at `/rpc`)
 - a **miner** (`quip-miner`) that's a *client* of the validator: pure outbound WebSocket RPC, no inbound listeners
 - the **dashboard** + **Caddy** + **Postgres** (same as v0.1 but reconfigured)
@@ -148,7 +148,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `quip-network-node-cpu` (image) | `quip-miner-cpu` | Same trick for CUDA. |
 | `docker/quip-node.cpu.toml` | `docker/quip-miner.cpu.toml` | Image-baked config template. |
 | `systemd-linux/quip-node.systemd.toml` | `systemd-linux/quip-miner.systemd.toml` | Systemd unit. |
-| _new_ | `quip-network-node` | The substrate validator binary (from `quip-protocol-rs`). |
+| _new_ | `quip-network-node` | The substrate validator binary (from `quip-validator`). |
 
 ## Config schema (`data/config.toml`)
 
@@ -220,7 +220,7 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 
 ## Chain spec
 
-- v0.1 had no on-chain state. v0.2 introduces `chain-specs/quip-testnet.json` (mirrored from `quip-protocol-rs`).
+- v0.1 had no on-chain state. v0.2 introduces `chain-specs/quip-testnet.json` (mirrored from `quip-validator`).
 - The genesis hash MUST match what bootnodes are serving. Mismatch presents as silent peering failure: libp2p layer connects, substream-level handshake rejects. Re-export procedure documented in README.
 - `chain-specs/quip-testnet.json.sha256` is the checksum sidecar — always re-export both files together.
 
@@ -229,7 +229,7 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 - `QuantumPow.DefaultTopology` must be set on chain before any miner can submit a proof — otherwise miners exit with `chain has no registered topology; run 'quip-miner bootstrap --seed-chain' first`.
 - `scripts/seed-advantage2-topology.py` is the operator tool for this. Takes `--sudo-key` (dev URI or 32-byte hex master seed) or `--mnemonic-file` (path to a BIP39 phrase; derives the hybrid master seed via `substrateinterface.Keypair.create_from_mnemonic` — the BIP39 mini-secret-key is the same input the Rust `sr25519_mldsa44::Pair::from_string(mnemonic)` derivation uses).
 - Default difficulty is set in the same script run: `min_solutions = 5`, `max_energy_milli = -2_500_000`, `min_diversity_milli = 200`. The chain's difficulty controller adjusts the live threshold from there based on submission rate.
-- Sudo on the testnet is the operator-1 hybrid account (`5GZMo…aYi`) from `quip-protocol-rs/quip-testnet-keys/operator-1/`. Same account is also the faucet funder.
+- Sudo on the testnet is the operator-1 hybrid account (`5GZMo…aYi`) from `quip-validator/quip-testnet-keys/operator-1/`. Same account is also the faucet funder.
 
 ## Faucet
 
@@ -253,7 +253,7 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 
 1. **Stale `docker-compose.override.yml` working-copy file.** `git pull` from the v0.2 rename commit (`d5c7ac3`) doesn't delete operator working-copy files. An untracked `docker-compose.override.yml` will still auto-load and override every `docker compose` call to the dev chain. Symptom: validator logs `📋 Chain specification: Development` instead of `Quip Testnet`. Fix: `rm docker-compose.override.yml` on the operator host.
 2. **`rest_port` semantic flip.** v0.1 had operators put any port (commonly 443) for miner-terminated TLS. v0.2 needs `rest_port = 80` so Caddy can proxy. Converter forces 80 + warns; operators editing config by hand can still misconfigure.
-3. **Chain spec drift.** Genesis hash changes upstream → silent peering failure. Always re-export `chain-specs/quip-testnet.json` after pulling a new `quip-protocol-rs` image.
+3. **Chain spec drift.** Genesis hash changes upstream → silent peering failure. Always re-export `chain-specs/quip-testnet.json` after pulling a new `quip-validator` image.
 4. **Topology must be seeded before miners join a fresh testnet.** No bootstrap path exists for miners until sudo seeds `DefaultTopology` via `scripts/seed-advantage2-topology.py`.
 5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2 dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:8086` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env` (and wire them into the dashboard service via a `docker-compose.override.yml`). Tracked in the open changes for `dashboard.quip.network`.
 6. **Non-root container can bind `:80`.** The miner runs as `uid=1000` but the upstream image grants `CAP_NET_BIND_SERVICE` (or equivalent), so binding `:80` works inside the container. Don't add a `:80` → `:8080` workaround thinking the unprivileged-port limit applies; it doesn't here.
@@ -267,5 +267,5 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 - [CHANGELOG.md](CHANGELOG.md) — same v0.1 → v0.2 changes, framed as release notes.
 - [CADDY.md](CADDY.md) — TLS / Caddy operator notes.
 - [docs/testnet-deployment.md](docs/testnet-deployment.md) — bootnode operator runbook.
-- [`quip-protocol-rs/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/genesis-quip-testnet.md) — upstream genesis + authorities.
-- [`quip-protocol-rs/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/testnet-keys.md) — operator key derivation.
+- [`quip-validator/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/genesis-quip-testnet.md) — upstream genesis + authorities.
+- [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/testnet-keys.md) — operator key derivation.

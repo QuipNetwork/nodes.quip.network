@@ -87,7 +87,7 @@ def _signer_from_mnemonic_file(path: Path) -> HybridSigner:
     same way (substrate-interface `Keypair.create_from_seed`) AND the
     ML-DSA-44 sub-key via FIPS 204 `ML_DSA.KeyGen(seed)` — matching the
     Rust `sr25519_mldsa44::Pair::from_string(mnemonic)` derivation used in
-    `quip-protocol-rs/crates/transaction-crypto/examples/derive_genesis_keys.rs`.
+    `quip-validator/crates/transaction-crypto/examples/derive_genesis_keys.rs`.
     """
     from substrateinterface import Keypair, KeypairType
 
