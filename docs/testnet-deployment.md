@@ -8,7 +8,7 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 
 | Item | Value |
 |---|---|
-| Image | `registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2` |
+| Image | `registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2` |
 | Chain spec | `chain-specs/quip-testnet.json` (committed; same file every operator uses) |
 | Compose v2.20+ | required for `depends_on.required: false` |
 | Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy: ACME + RPC + dashboard) |
@@ -29,14 +29,14 @@ DNS is operator-managed; this repo does not provision A records.
 
 ## Node key
 
-Each bootnode operator holds the private libp2p key whose hash matches the peer id embedded in the chain spec. The key is generated once (offline) by the network operator who derives all three slots, then distributed to the bootnode operators via the procedure in [`quip-protocol-rs/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/testnet-keys.md).
+Each bootnode operator holds the private libp2p key whose hash matches the peer id embedded in the chain spec. The key is generated once (offline) by the network operator who derives all three slots, then distributed to the bootnode operators via the procedure in [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/testnet-keys.md).
 
 On the host, place the key at `./data/node-key` (already gitignored in this repo). Mount it via the `--node-key-file` flag.
 
 ```bash
 # Verify the on-disk key matches the published peer id (run on the host)
 docker run --rm -v "$PWD/data:/data:ro" \
-  registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
   key inspect-node-key --file /data/node-key
 # Output: 12D3KooW... — must match this slot's peer id in chain-specs/quip-testnet.json
 ```
@@ -55,7 +55,7 @@ The base compose stack runs the validator with stock flags. Bootnode operators n
 
 ## Session keys (BABE / GRANDPA)
 
-After the validator's first boot, insert hybrid BABE and GRANDPA keys derived from the operator's session mnemonic. Procedure from [`quip-protocol-rs/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/testnet-keys.md), executed inside the validator container so the keystore mount picks them up:
+After the validator's first boot, insert hybrid BABE and GRANDPA keys derived from the operator's session mnemonic. Procedure from [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/testnet-keys.md), executed inside the validator container so the keystore mount picks them up:
 
 ```bash
 docker compose exec quip-validator \
@@ -111,5 +111,5 @@ Bootnodes that fail the `:30333` check will keep gossiping outbound but no one c
 ## See also
 
 - [`README.md`](../README.md) — main deployment guide (miners + non-bootnode operators)
-- [`quip-protocol-rs/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/genesis-quip-testnet.md) — full authorities + sudo + key procedure
-- [`quip-protocol-rs/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/testnet-keys.md) — operator key derivation + insertion procedure
+- [`quip-validator/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/genesis-quip-testnet.md) — full authorities + sudo + key procedure
+- [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/testnet-keys.md) — operator key derivation + insertion procedure

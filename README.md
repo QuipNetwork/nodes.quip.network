@@ -342,7 +342,7 @@ To verify provenance against the published validator image:
 
 ```bash
 docker run --rm \
-  registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
   export-chain-spec --chain quip-testnet --raw > /tmp/from-image.json
 shasum -a 256 /tmp/from-image.json chain-specs/quip-testnet.json
 # Both hashes should match exactly.
@@ -350,14 +350,14 @@ shasum -a 256 /tmp/from-image.json chain-specs/quip-testnet.json
 
 #### Mirroring procedure
 
-The chain spec is mirrored from `quip-protocol-rs` — specifically `runtime/src/genesis_quip_testnet/` plus the inline tx-account hex in `genesis_config_presets.rs::quip_testnet_config_genesis`. To regenerate after an upstream preset change:
+The chain spec is mirrored from `quip-validator` — specifically `runtime/src/genesis_quip_testnet/` plus the inline tx-account hex in `genesis_config_presets.rs::quip_testnet_config_genesis`. To regenerate after an upstream preset change:
 
 ```bash
 # Pull the new preview image (after upstream pushes the new sha-XXXXXXXX tag)
-docker pull registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2
+docker pull registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2
 
 # Re-export and update the checksum sidecar
-docker run --rm registry.gitlab.com/quip.network/quip-protocol-rs/quip-network-node:v0.2 \
+docker run --rm registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
   export-chain-spec --chain quip-testnet --raw > chain-specs/quip-testnet.json
 (cd chain-specs && shasum -a 256 quip-testnet.json > quip-testnet.json.sha256)
 ```
@@ -366,7 +366,7 @@ Do not hand-edit `chain-specs/quip-testnet.json`. Any change must come from re-e
 
 #### Authorities
 
-Genesis authorities, sudo, and the full set-keys procedure live in [`quip-protocol-rs/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/genesis-quip-testnet.md). Operator key handling is documented in [`quip-protocol-rs/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-protocol-rs/-/blob/v0.2/docs/testnet-keys.md).
+Genesis authorities, sudo, and the full set-keys procedure live in [`quip-validator/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/genesis-quip-testnet.md). Operator key handling is documented in [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/testnet-keys.md).
 
 #### Switching to local development
 
@@ -453,7 +453,7 @@ docker compose --profile cpu up -d --force-recreate
 | `data/config.toml` | Active node configuration (copied from a template) |
 | `data/config.cpu.toml` | CPU mode template (base for QPU/D-Wave; uncomment `[qpu]` + `[dwave]`) |
 | `data/config.cuda.toml` | CUDA GPU mode template |
-| `chain-specs/quip-testnet.json` | Canonical Quip Testnet chain spec (committed; mirrored from quip-protocol-rs) |
+| `chain-specs/quip-testnet.json` | Canonical Quip Testnet chain spec (committed; mirrored from quip-validator) |
 | `chain-specs/quip-testnet.json.sha256` | SHA-256 checksum for the testnet spec |
 | `data/chain-spec.json` | Local-development chain spec (`quip-local`; opt-in via `QUIP_CHAIN_SPEC`) |
 | `data/validator-data/` | Validator base path (keystore, db, libp2p key; gitignored) |
