@@ -170,7 +170,7 @@ peer = [
 
 verify_tls = false
 
-# TLS certificates for QUIC transport (optional; see TLS.md in quip-protocol
+# TLS certificates for QUIC transport (optional; see TLS.md in quip-miner
 # for wiring real certs into QUIC — Caddy manages HTTP(S) certs separately).
 # tls_cert_file = "/data/certs/private/fullchain.pem"
 # tls_key_file = "/data/certs/private/privkey.pem"
@@ -193,7 +193,7 @@ printf 'PUID=%s\nPGID=%s\n' "$(id -u)" "$(id -g)" >> .env
 chmod 600 .env
 ```
 
-The `printf` line seeds `.env` with your host's uid/gid. Since quip-protocol v0.1.7 the node container runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID`; aligning these with your `deploy` user's uid keeps files editable without `sudo`.
+The `printf` line seeds `.env` with your host's uid/gid. Since quip-miner v0.1.7 the node container runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID`; aligning these with your `deploy` user's uid keeps files editable without `sudo`.
 
 Edit `.env`:
 
@@ -274,7 +274,7 @@ Caddy provisions a cert via **Let's Encrypt** on first startup (ZeroSSL as autom
 
 To pin ZeroSSL as the primary issuer, uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
 
-**QUIC transport TLS** on port 20049 (node-to-node peer traffic) is a separate concern. The default configuration uses TOFU + `trust.db` for peer identity. See [TLS.md](https://gitlab.com/quip.network/quip-protocol/-/blob/main/docker/TLS.md) in quip-protocol for wiring real certs into QUIC.
+**QUIC transport TLS** on port 20049 (node-to-node peer traffic) is a separate concern. The default configuration uses TOFU + `trust.db` for peer identity. See [TLS.md](https://gitlab.com/quip.network/quip-miner/-/blob/main/docker/TLS.md) in quip-miner for wiring real certs into QUIC.
 
 For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced options, edit `caddy/Caddyfile` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
 

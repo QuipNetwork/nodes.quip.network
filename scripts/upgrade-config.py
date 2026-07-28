@@ -84,7 +84,7 @@ CADDY_PROXY_REST_PORT = 8086
 # images have no configuration env vars).
 FAUCET_TESTNET_URL = "https://faucet.testnet.quip.network"
 
-# Miner env vars with no consumer as of the quip-protocol v0.2.1-rc
+# Miner env vars with no consumer as of the quip-miner v0.2.1-rc
 # images — the miner is fully config-driven. Uncommented values are
 # harvested into config.toml before the lines are stripped from .env.
 DEAD_MINER_ENV_KEYS = (
@@ -580,7 +580,7 @@ def _backfill_rest(lines, bounds, miner, notes, warnings):
 def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
     """Backfill an existing v0.2 config for the config-driven miner images.
 
-    The quip-protocol v0.2.1-rc images dropped every configuration env
+    The quip-miner v0.2.1-rc images dropped every configuration env
     var, so knobs older stacks supplied via QUIP_* env (validators,
     faucet_url, rest_port) must live in config.toml now. Edits are
     line-based to preserve operator comments. Returns True when the file

@@ -207,7 +207,7 @@ Also set:
 - `POSTGRES_PASSWORD` — optional; defaults to `quip`. Postgres isn't published to the host, so the default is safe for local use.
 - `QUIP_VALIDATOR_TAG`, `VALIDATOR_NAME` — see `env.example` for the validator and faucet sections.
 
-The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-protocol v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000).
+The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-miner v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000).
 
 > **Note:** `.env` is docker compose's interpolation source, not a blanket container env file. A variable only reaches a container when `docker-compose.yml` explicitly wires it through an `environment:` entry — custom variables you add to `.env` are invisible to containers unless you also wire them via a `docker-compose.override.yml`.
 

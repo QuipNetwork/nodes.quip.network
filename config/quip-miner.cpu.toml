@@ -1,4 +1,4 @@
-# quip-miner CPU config template — forked from quip-protocol
+# quip-miner CPU config template — forked from the quip-miner repo
 # docker/quip-miner.cpu.toml (v0.2.1-rc36) with the canonical testnet
 # faucet_url filled in. docker-compose.yml bind-mounts this file over
 # /app/quip-miner.docker.toml so the entrypoint's first-run seed writes

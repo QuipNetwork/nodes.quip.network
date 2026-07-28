@@ -65,7 +65,7 @@ services:
   # The dev-faucet flip lives in config, not env: `make localdev` copies
   # config/localdev.<profile>.toml to data/config.toml (faucet_url =
   # http://quip-faucet:8087) before bringing the stack up. The miner has
-  # no configuration env vars as of the quip-protocol v0.2.1-rc line.
+  # no configuration env vars as of the quip-miner v0.2.1-rc line.
   cpu:
     container_name: quip-cpu-localdev
 
