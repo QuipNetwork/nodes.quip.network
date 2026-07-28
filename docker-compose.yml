@@ -60,13 +60,13 @@ x-dashboard: &dashboard
       condition: service_healthy
 
 services:
-  # The miner is config-driven as of the quip-protocol v0.2.1-rc line: all
+  # The miner is config-driven as of the quip-miner v0.2.1-rc line: all
   # mining configuration lives in /data/config.toml (seeded on first run
   # from the mounted template below) and there are no QUIP_* config env
   # vars. The environment block carries only host concerns (PUID/PGID)
   # plus the D-Wave credential.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
+    image: registry.gitlab.com/quip.network/quip-miner/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -85,7 +85,7 @@ services:
     # but the default single-CPU config hits it too. tmpfs is allocated
     # lazily, so a generous cap costs nothing until written. (The cuda
     # service instead sets ipc:host, which shares the host's /dev/shm.)
-    # See quip-protocol v0.2.1-rc45.
+    # See quip-miner v0.2.1-rc45.
     shm_size: "2gb"
     # STOPGAP (v0.2). The miner's working set grows without bound during a
     # round: a 27.1 GiB peak on a 32 GiB host triggered two *global* OOM-kills,
@@ -124,7 +124,7 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-protocol/quip-miner-cuda:${QUIP_MINER_TAG:-v0.2}
+    image: registry.gitlab.com/quip.network/quip-miner/quip-miner-cuda:${QUIP_MINER_TAG:-v0.2}
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped

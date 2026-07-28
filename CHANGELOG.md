@@ -4,13 +4,13 @@
 
 ### CPU miner `shm_size` raised to avoid SIGBUS
 
-The `cpu` miner service now sets `shm_size: "2gb"`. Each SA worker streams samples through a POSIX shared-memory ring (~75 MiB per worker at the Advantage2 topology's maximum reads), which overflows Docker's 64 MiB `/dev/shm` default. Because tmpfs is sparse, the allocation succeeds and the miner instead dies with **SIGBUS (`exitcode=-7`)** when a worker first writes an unbackable page — reported on a 12-core host, but the default single-CPU config exceeds 64 MiB too. The cap is not a reservation (tmpfs pages are consumed only when written), so the generous value is free. The `cuda` service is unaffected: it already sets `ipc: host`, sharing the host's `/dev/shm`. Matches quip-protocol v0.2.1-rc45.
+The `cpu` miner service now sets `shm_size: "2gb"`. Each SA worker streams samples through a POSIX shared-memory ring (~75 MiB per worker at the Advantage2 topology's maximum reads), which overflows Docker's 64 MiB `/dev/shm` default. Because tmpfs is sparse, the allocation succeeds and the miner instead dies with **SIGBUS (`exitcode=-7`)** when a worker first writes an unbackable page — reported on a 12-core host, but the default single-CPU config exceeds 64 MiB too. The cap is not a reservation (tmpfs pages are consumed only when written), so the generous value is free. The `cuda` service is unaffected: it already sets `ipc: host`, sharing the host's `/dev/shm`. Matches quip-miner v0.2.1-rc45.
 
 **Operator impact**: none for compose users — the new default applies on `docker compose up`. Operators running the miner image directly with `docker run` must add `--shm-size=2g` themselves.
 
 ### Miner is config-driven — `QUIP_*` miner env vars removed
 
-The quip-protocol v0.2.1-rc miner images (which the rolling `:v0.2` registry tag serves) dropped every configuration env var: `data/config.toml` is the single source of truth, and the entrypoint's env contract is `PUID`/`PGID` only. This repo now matches that contract:
+The quip-miner v0.2.1-rc miner images (which the rolling `:v0.2` registry tag serves) dropped every configuration env var: `data/config.toml` is the single source of truth, and the entrypoint's env contract is `PUID`/`PGID` only. This repo now matches that contract:
 
 - `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, and `QUIP_REST_PORT` are gone from `docker-compose.yml` — the rc-line images silently ignored them. Set `[miner].validators` / `.faucet_url` / `.rest_port` in `data/config.toml` instead. The miner's built-in validator fallback is `["ws://quip-validator:9944", "ws://127.0.0.1:9944"]`, so the colocated-validator default needs no config at all.
 - `caddy/Caddyfile` proxies `/api/v1/*` to `quip-miner:8086` (the image's `rest_port` default) instead of the old forced `:80`.
