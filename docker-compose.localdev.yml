@@ -33,8 +33,8 @@
 #   3. Seed advantage2_system1 + Difficulty via //Alice sudo (one-shot):
 #        docker compose -f docker-compose.yml -f docker-compose.localdev.yml \
 #          --profile cpu run --rm \
-#          -v $(pwd)/scripts/seed-advantage2-topology.py:/seed.py:ro \
-#          --entrypoint python3 cpu /seed.py --sudo-key //Alice
+#          --entrypoint quip-coordinator cpu seed-chain \
+#          --validator ws://quip-validator:9944 --sudo-key //Alice
 #   4. The cpu/cuda miner self-bootstraps on startup: it registers itself in
 #      QuantumPow.Miners and faucet-funds via the faucet_url in
 #      data/config.toml (make localdev copies config/localdev.<profile>.toml

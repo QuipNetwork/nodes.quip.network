@@ -34,7 +34,6 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | `data/config.cpu.toml`, `data/config.cuda.toml` | Mode-specific templates operators `cp` to `data/config.toml` on first run. |
 | `data/chain-spec.json` | Local dev chain spec (`quip-local` preset). |
 | `scripts/upgrade-config.py` | v0.1 → v0.2 config converter. Stdlib-only Python 3.11+. Migrates both `data/config.toml` and the sibling `.env`. |
-| `scripts/seed-advantage2-topology.py` | One-shot sudo extrinsic submitter — registers `advantage2_system1` as `DefaultTopology` + sets `Difficulty`. Takes `--sudo-key` (dev URI or hex master seed) or `--mnemonic-file`. |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle). |
 | `tests/fixtures/v0.1/{cpu,cuda,qpu,already-v0.2}/data/config.toml` | Trimmed real operator configs used by the converter test suite. |
 | `tests/test_upgrade_config.py` | 28 pytest cases against `scripts/upgrade-config.py`. |
@@ -225,9 +224,9 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 
 ## Topology + difficulty (on-chain state)
 
-- `QuantumPow.DefaultTopology` must be set on chain before any miner can submit a proof — otherwise miners exit with `chain has no registered topology; run 'quip-miner bootstrap --seed-chain' first`.
-- `scripts/seed-advantage2-topology.py` is the operator tool for this. Takes `--sudo-key` (dev URI or 32-byte hex master seed) or `--mnemonic-file` (path to a BIP39 phrase; derives the hybrid master seed via `substrateinterface.Keypair.create_from_mnemonic` — the BIP39 mini-secret-key is the same input the Rust `sr25519_mldsa44::Pair::from_string(mnemonic)` derivation uses).
-- Default difficulty is set in the same script run: `min_solutions = 5`, `max_energy_milli = -2_500_000`, `min_diversity_milli = 200`. The chain's difficulty controller adjusts the live threshold from there based on submission rate.
+- You must set `QuantumPow.DefaultTopology` on chain before any miner can submit a proof. The v0.3 coordinator does not exit. It logs `feeder: chain has no mining snapshot (no registered/mineable topology); staging nothing`.
+- `quip-coordinator seed-chain` is the operator tool for this. It registers the embedded `advantage2-system1` topology as `DefaultTopology` and sets `Difficulty`. Pass `--sudo-key` with a dev URI, a BIP39 mnemonic, a 32-byte hex master seed, or a keystore path. Or pass `--mnemonic-file` with a path to a BIP39 phrase.
+- `seed-chain` sets the default difficulty in the same run: `min_solutions = 5`, `max_energy_milli = -2_500_000`, `min_diversity_milli = 200`. The chain's difficulty controller adjusts the live threshold from there based on submission rate.
 - Sudo on the testnet is the operator-1 hybrid account (`5GZMo…aYi`) from `quip-validator/quip-testnet-keys/operator-1/`. Same account is also the faucet funder.
 
 ## Faucet
@@ -253,7 +252,7 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 1. **Stale `docker-compose.override.yml` working-copy file.** `git pull` from the v0.2 rename commit (`d5c7ac3`) doesn't delete operator working-copy files. An untracked `docker-compose.override.yml` will still auto-load and override every `docker compose` call to the dev chain. Symptom: validator logs `📋 Chain specification: Development` instead of `Quip Testnet`. Fix: `rm docker-compose.override.yml` on the operator host.
 2. **`rest_port` semantic flip.** v0.1 had operators put any port (commonly 443) for miner-terminated TLS. v0.2 needs `rest_port = 80` so Caddy can proxy. Converter forces 80 + warns; operators editing config by hand can still misconfigure.
 3. **Chain spec drift.** Genesis hash changes upstream → silent peering failure. Always re-export `chain-specs/quip-testnet.json` after pulling a new `quip-validator` image.
-4. **Topology must be seeded before miners join a fresh testnet.** No bootstrap path exists for miners until sudo seeds `DefaultTopology` via `scripts/seed-advantage2-topology.py`.
+4. **Seed the topology before miners join a fresh testnet.** No miner can submit a proof until sudo seeds `DefaultTopology` via `quip-coordinator seed-chain`.
 5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2 dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:8086` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env` (and wire them into the dashboard service via a `docker-compose.override.yml`). Tracked in the open changes for `dashboard.quip.network`.
 6. **Non-root container can bind `:80`.** The miner runs as `uid=1000` but the upstream image grants `CAP_NET_BIND_SERVICE` (or equivalent), so binding `:80` works inside the container. Don't add a `:80` → `:8080` workaround thinking the unprivileged-port limit applies; it doesn't here.
 7. **QPU mode selection is now config-driven** (post upstream entrypoint rework). The image's entrypoint calls `quip-miner resolve-modes --config /data/config.toml` and spawns one `quip-miner <mode>` child per resolved backend. Earlier guidance about needing `QUIP_MODE=qpu` env var no longer applies — uncommenting `[qpu]` + `[dwave]` in the config is sufficient (plus `DWAVE_API_KEY` in `.env`).
