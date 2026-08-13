@@ -60,13 +60,14 @@ x-dashboard: &dashboard
       condition: service_healthy
 
 services:
-  # The miner is config-driven as of the quip-miner v0.2.1-rc line: all
-  # mining configuration lives in /data/config.toml (seeded on first run
-  # from the mounted template below) and there are no QUIP_* config env
-  # vars. The environment block carries only host concerns (PUID/PGID)
-  # plus the D-Wave credential.
+  # Both miner images ship the v0.3 quip-coordinator with every miner binary
+  # it supports bundled in. The coordinator is the supervised process: it
+  # connects to the chain and launches the miners declared in
+  # /data/config.toml, which the image seeds from its own /app/config.toml on
+  # first run. There are no QUIP_* config env vars. The environment block
+  # carries only host concerns (PUID/PGID) plus the D-Wave credential.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-miner/quip-miner-cpu:${QUIP_MINER_TAG:-v0.2}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-v0.3.0-rc7}
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -109,11 +110,6 @@ services:
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
     volumes:
       - ./data:/data
-      # First-run config seed. The entrypoint copies this template to
-      # /data/config.toml only when that file doesn't exist yet; our fork
-      # fills in the testnet faucet_url (upstream's template leaves it
-      # unset, which disables auto-funding).
-      - ./config/quip-miner.cpu.toml:/app/quip-miner.docker.toml:ro
     networks:
       default:
         aliases:
@@ -124,7 +120,7 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-miner/quip-miner-cuda:${QUIP_MINER_TAG:-v0.2}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-v0.3.0-rc7}
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
@@ -153,8 +149,6 @@ services:
       CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: ${QUIP_GPU_UTILIZATION:-100}
     volumes:
       - ./data:/data
-      # First-run config seed (see the cpu service note).
-      - ./config/quip-miner.cuda.toml:/app/quip-miner.docker.toml:ro
       # MPS control pipe shared with the host daemon. Resolves to an empty dir
       # (no MPS) on hosts without a running daemon — safe to mount regardless.
       - /tmp/nvidia-mps:/tmp/nvidia-mps

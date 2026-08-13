@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.3 (unreleased)
+
+### Miner services moved to the v0.3 coordinator images
+
+The `cpu` and `cuda` services now pull from the v0.3 repository line:
+
+| service | was | now |
+|---|---|---|
+| `cpu` | `quip-miner/quip-miner-cpu` | `quip-miner/v0.3/quip-miner` |
+| `cuda` | `quip-miner/quip-miner-cuda` | `quip-miner/v0.3/quip-miner-cuda` |
+
+The v0.3 images are a separate repository line, not new tags on the old one. The old repositories stop at `v0.2.1-rc54`, so a `QUIP_MINER_TAG` set to a v0.3 tag against the old path fails the pull with `not found`. Note that the CPU image dropped its `-cpu` suffix, because the coordinator now bundles every miner binary it supports.
+
+The default `QUIP_MINER_TAG` is `v0.3.0-rc7`.
+
+### First-run config templates removed
+
+`config/quip-miner.{cpu,cuda}.toml` are deleted and no longer bind-mounted. Two reasons:
+
+- The v0.3 entrypoint seeds from `/app/config.toml`, not `/app/quip-miner.docker.toml`, so the mount had no effect.
+- The templates carry the v0.2 miner schema, which the v0.3 coordinator rejects.
+
+Each image ships its own `/app/config.toml` and seeds `data/config.toml` from it on first run. To customise the config, edit `data/config.toml` and restart.
+
+**Operator impact**: an existing `data/config.toml` in the v0.2 schema does not start under v0.3. The coordinator needs a backend section (`[cpu]`, `[cuda.N]`, `[metal]`, or `[dwave]`) and both `[miner].public_host` and `[miner].public_port`. It ignores `[miner].rest_host` and `[miner].rest_port`. The REST surface that Caddy proxies at `/api/v1/*` now comes from `[dashboard].listen`, which needs `data_dir` set as well or the dashboard stays off.
+
+### Localdev configs updated for the v0.3 schema
+
+`config/localdev.{cpu,cuda}.toml` replace `[miner].rest_host` and `rest_port` with a `[dashboard]` section on the same port 8086, and add the `public_host` and `public_port` keys the coordinator requires.
+
 ## v0.2 (unreleased)
 
 ### CPU miner `shm_size` raised to avoid SIGBUS

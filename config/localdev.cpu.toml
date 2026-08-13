@@ -2,16 +2,25 @@
 # data/config.toml before bringing the stack up, replacing whatever was
 # there — the localdev stack is self-contained and disposable by design.
 #
-# Differences from the testnet template (config/quip-miner.cpu.toml):
+# Differences from the image's own /app/config.toml template:
 # faucet_url points at the colocated dev faucet (//Alice funder) instead
-# of the canonical testnet faucet.
+# of the canonical testnet faucet, and public_host is loopback because
+# nothing outside this host is expected to reach a localdev node.
 
 [miner]
 signer_key = "/data/keystore.json"
 faucet_url = "http://quip-faucet:8087"
-rest_host = "0.0.0.0"
-rest_port = 8086
 node_name = "localdev-miner"
+# Required by the coordinator, which refuses to start without both.
+public_host = "127.0.0.1"
+public_port = 20049
 
+# Attempt dashboard and v1 REST. 8086 matches the Caddyfile's
+# `reverse_proxy quip-miner:8086` — keep the two in sync.
+[dashboard]
+listen = "0.0.0.0:8086"
+data_dir = "/data/attempts"
+
+# Bundled binary defaults to quip-cpu-sa.
 [cpu]
 num_cpus = 1
