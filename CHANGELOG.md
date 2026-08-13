@@ -2,6 +2,27 @@
 
 ## v0.3 (unreleased)
 
+### Image tags default to `latest`
+
+Every quip image now defaults to `latest` instead of a pinned version:
+
+| variable | was | now |
+|---|---|---|
+| `QUIP_MINER_TAG` | `v0.3.0-rc7` | `latest` |
+| `QUIP_VALIDATOR_TAG` | `v0.2` | `latest` |
+| `QUIP_DASHBOARD_TAG` | `v0.2` | `latest` |
+| `QUIP_FAUCET_TAG` | `latest` | `latest` |
+
+Each service already sets `pull_policy: always`, so `docker compose up` re-resolves the tag on every start. An operator who sets no tag runs the newest published build.
+
+`env.example` no longer assigns these variables. It comments out each one and shows the pin syntax on the preceding line. The variables still work, so set one to pin a deploy to a release or a `sha-XXXXXXXX` commit tag.
+
+`postgres:16` and `caddy:2-alpine` stay pinned. Both are third-party images where a major version jump can break the on-disk data format.
+
+The `docker run` commands in `README.md` and `docs/testnet-deployment.md` now use `:latest` for the validator image.
+
+**Operator impact**: a `QUIP_*_TAG` line in an existing `.env` overrides the compose default, so a stale pin holds the stack on an old build. Delete these lines from `.env` to track `latest`. A pin left at `v0.2` against the v0.3 miner path fails the pull with `manifest unknown`.
+
 ### Miner services moved to the v0.3 coordinator images
 
 The `cpu` and `cuda` services now pull from the v0.3 repository line:
@@ -13,7 +34,24 @@ The `cpu` and `cuda` services now pull from the v0.3 repository line:
 
 The v0.3 images are a separate repository line, not new tags on the old one. The old repositories stop at `v0.2.1-rc54`, so a `QUIP_MINER_TAG` set to a v0.3 tag against the old path fails the pull with `not found`. Note that the CPU image dropped its `-cpu` suffix, because the coordinator now bundles every miner binary it supports.
 
-The default `QUIP_MINER_TAG` is `v0.3.0-rc7`.
+`QUIP_MINER_TAG` defaults to `latest` on the new path.
+
+### Chain seeding moved into the coordinator
+
+`scripts/seed-advantage2-topology.py` is deleted. The v0.3 miner image dropped the Python chain-interaction modules the script imported (`dwave_topologies`, `shared.hybrid_signer`, `substrate.client`, `substrate.miner_bootstrap`), so the script could not run inside the image.
+
+`quip-coordinator seed-chain` replaces it. The coordinator carries the `advantage2-system1` topology in the binary, so the localdev seed step no longer mounts a script:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.localdev.yml \
+  --profile cpu run --rm \
+  --entrypoint quip-coordinator cpu seed-chain \
+  --validator ws://quip-validator:9944 --sudo-key //Alice
+```
+
+`--sudo-key` takes a dev URI, a BIP39 mnemonic, a 32-byte hex master seed, or a keystore path. `--mnemonic-file` takes a path to a BIP39 phrase.
+
+**Operator impact**: a fresh chain still needs seeding before any miner can submit a proof. The v0.3 coordinator does not exit when `DefaultTopology` is unset. It stages no work and logs `feeder: chain has no mining snapshot (no registered/mineable topology)`.
 
 ### First-run config templates removed
 

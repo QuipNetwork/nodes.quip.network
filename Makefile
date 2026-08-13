@@ -112,8 +112,8 @@ localdev: require-env down clean-chain
 	@echo "waiting for validator to produce blocks..."
 	@sleep 12
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) run --rm \
-	    -v "$(CURDIR)/scripts/seed-advantage2-topology.py:/seed.py:ro" \
-	    --entrypoint python3 cpu /seed.py --sudo-key $(SUDO_KEY)
+	    --entrypoint quip-coordinator $(PROFILE) seed-chain \
+	    --validator ws://quip-validator:9944 --sudo-key $(SUDO_KEY)
 	# The cpu/cuda miner self-bootstraps (register + fund) on startup.
 	# Topology must already be seeded above, otherwise the miner's
 	# self-bootstrap fails inside its retry loop.
