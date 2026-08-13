@@ -26,7 +26,7 @@ x-logging: &default-logging
 # Shared dashboard configuration. The dashboard is always present alongside
 # every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
 x-dashboard: &dashboard
-  image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-v0.2}
+  image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-latest}
   pull_policy: always
   container_name: quip-dashboard
   restart: unless-stopped
@@ -67,7 +67,7 @@ services:
   # first run. There are no QUIP_* config env vars. The environment block
   # carries only host concerns (PUID/PGID) plus the D-Wave credential.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-v0.3.0-rc7}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-latest}
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -120,7 +120,7 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-v0.3.0-rc7}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-latest}
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
@@ -177,7 +177,7 @@ services:
   # Inbound 30333/tcp and 30333/udp must be reachable from the public internet
   # for libp2p peering.
   quip-validator:
-    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.2}
+    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-latest}
     pull_policy: always
     container_name: quip-validator
     restart: unless-stopped

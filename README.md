@@ -55,7 +55,8 @@ git pull origin v0.2
 
 Review `docker-compose.yml` and `env.example` against your local `.env`:
 
-- **New env vars** you'll want to set before the first start: `QUIP_VALIDATOR_TAG`, `QUIP_FAUCET_TAG`, `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `CERT_EMAIL`.
+- **New env vars** you'll want to set before the first start: `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `CERT_EMAIL`.
+- **Image tag vars** (`QUIP_MINER_TAG`, `QUIP_VALIDATOR_TAG`, `QUIP_DASHBOARD_TAG`, `QUIP_FAUCET_TAG`) all default to `latest` and are best left unset. A value in your `.env` overrides the compose default, so a stale pin holds the stack on an old build.
 - **Removed env vars** — delete these from your `.env` if present (they're no longer consumed by v0.2 and only clutter the file):
   - `QUIP_NODE_URL` — superseded by `QUIP_VALIDATOR_RPC_URLS` (now drives both chain indexing and the miner REST surface; comma-separated list of substrate WS URLs).
   - `QUIP_NODE_TOKEN` — removed; bearer-token access control moved out of the dashboard image into the deployment layer (reverse-proxy auth, network policy).
@@ -125,7 +126,7 @@ docker compose --profile cuda up -d
 docker compose --profile cpu --profile faucet up -d
 ```
 
-Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the v0.2 images (`quip-miner-{cpu,cuda}`, `quip-network-node`, `quip-faucet`, etc.) and auto-generates `data/keystore.json` for the miner. The miner self-bootstraps on startup: it funds the new account via the canonical testnet faucet (`https://faucet.testnet.quip.network`, set as `faucet_url` in the seeded `data/config.toml`) and registers it in the chain's `QuantumPow.Miners` map before it starts producing proofs. Comment out `faucet_url` in `data/config.toml` (and restart) to opt out of faucet-funding if you've pre-funded the account yourself.
+Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the latest images (`quip-miner`, `quip-miner-cuda`, `quip-network-node`, `quip-faucet`, and the dashboard) and auto-generates `data/keystore.json` for the miner. The miner self-bootstraps on startup: it funds the new account via the canonical testnet faucet (`https://faucet.testnet.quip.network`, set as `faucet_url` in the seeded `data/config.toml`) and registers it in the chain's `QuantumPow.Miners` map before it starts producing proofs. Comment out `faucet_url` in `data/config.toml` (and restart) to opt out of faucet-funding if you've pre-funded the account yourself.
 
 Check it came up cleanly:
 
@@ -342,7 +343,7 @@ To verify provenance against the published validator image:
 
 ```bash
 docker run --rm \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:latest \
   export-chain-spec --chain quip-testnet --raw > /tmp/from-image.json
 shasum -a 256 /tmp/from-image.json chain-specs/quip-testnet.json
 # Both hashes should match exactly.
@@ -353,11 +354,11 @@ shasum -a 256 /tmp/from-image.json chain-specs/quip-testnet.json
 The chain spec is mirrored from `quip-validator` — specifically `runtime/src/genesis_quip_testnet/` plus the inline tx-account hex in `genesis_config_presets.rs::quip_testnet_config_genesis`. To regenerate after an upstream preset change:
 
 ```bash
-# Pull the new preview image (after upstream pushes the new sha-XXXXXXXX tag)
-docker pull registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2
+# Pull the newest published image
+docker pull registry.gitlab.com/quip.network/quip-validator/quip-network-node:latest
 
 # Re-export and update the checksum sidecar
-docker run --rm registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
+docker run --rm registry.gitlab.com/quip.network/quip-validator/quip-network-node:latest \
   export-chain-spec --chain quip-testnet --raw > chain-specs/quip-testnet.json
 (cd chain-specs && shasum -a 256 quip-testnet.json > quip-testnet.json.sha256)
 ```

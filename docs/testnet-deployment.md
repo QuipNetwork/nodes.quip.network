@@ -8,7 +8,7 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 
 | Item | Value |
 |---|---|
-| Image | `registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2` |
+| Image | `registry.gitlab.com/quip.network/quip-validator/quip-network-node:latest` |
 | Chain spec | `chain-specs/quip-testnet.json` (committed; same file every operator uses) |
 | Compose v2.20+ | required for `depends_on.required: false` |
 | Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy: ACME + RPC + dashboard) |
@@ -36,7 +36,7 @@ On the host, place the key at `./data/node-key` (already gitignored in this repo
 ```bash
 # Verify the on-disk key matches the published peer id (run on the host)
 docker run --rm -v "$PWD/data:/data:ro" \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:latest \
   key inspect-node-key --file /data/node-key
 # Output: 12D3KooW... — must match this slot's peer id in chain-specs/quip-testnet.json
 ```
