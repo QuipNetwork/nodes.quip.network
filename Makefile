@@ -21,6 +21,15 @@ COMPOSE          := docker compose
 # container_name/volume overrides in docker-compose.localdev.yml) never collide
 # with a live `make testnet` stack over the fixed global names in the base file.
 COMPOSE_LOCALDEV := docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml
+# Localdev resolves the newest published tag per image at run time. CI does not
+# move `latest` for rc builds, so tracking it silently holds localdev on an old
+# build. `make testnet` deliberately keeps `latest` — a release pointer is what
+# a production stack wants.
+TAGS_ENV         := data/localdev.tags.env
+# --env-file replaces compose's default .env loading, so pass both: .env first
+# for operator settings, the resolved tags second. A QUIP_*_TAG pinned in .env
+# is echoed back unchanged by the resolver, so an explicit pin still wins.
+COMPOSE_TAGGED   := $(COMPOSE_LOCALDEV) --env-file .env --env-file $(TAGS_ENV)
 
 .DEFAULT_GOAL := help
 
@@ -107,17 +116,24 @@ localdev: require-env down clean-chain
 	# stack is self-contained, so clobbering the config is by design.
 	mkdir -p data
 	cp config/localdev.$(PROFILE).toml data/config.toml
-	$(COMPOSE_LOCALDEV) --profile $(PROFILE) pull
-	$(COMPOSE_LOCALDEV) --profile $(PROFILE) up -d quip-validator quip-faucet
+	# Ask the registry which tag is newest per image. Any QUIP_*_TAG already
+	# set in .env or the environment is passed through, not overridden. The
+	# script writes the file itself rather than taking a `>` redirect, so it can
+	# read the previous run's tags and reuse them when the registry is down.
+	python3 scripts/newest-tags.py $(TAGS_ENV)
+	@echo "localdev image tags:"
+	@cat $(TAGS_ENV)
+	$(COMPOSE_TAGGED) --profile $(PROFILE) pull
+	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d quip-validator quip-faucet
 	@echo "waiting for validator to produce blocks..."
 	@sleep 12
-	$(COMPOSE_LOCALDEV) --profile $(PROFILE) run --rm \
+	$(COMPOSE_TAGGED) --profile $(PROFILE) run --rm \
 	    --entrypoint quip-coordinator $(PROFILE) seed-chain \
 	    --validator ws://quip-validator:9944 --sudo-key $(SUDO_KEY)
 	# The cpu/cuda miner self-bootstraps (register + fund) on startup.
 	# Topology must already be seeded above, otherwise the miner's
 	# self-bootstrap fails inside its retry loop.
-	$(COMPOSE_LOCALDEV) --profile $(PROFILE) up -d
+	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d
 	@echo ""
 	@echo "localdev stack up. tail logs: make logs"
 	@echo ""
