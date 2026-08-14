@@ -34,6 +34,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | `data/config.cpu.toml`, `data/config.cuda.toml` | Mode-specific templates operators `cp` to `data/config.toml` on first run. |
 | `data/chain-spec.json` | Local dev chain spec (`quip-local` preset). |
 | `scripts/upgrade-config.py` | v0.1 → v0.2 config converter. Stdlib-only Python 3.11+. Migrates both `data/config.toml` and the sibling `.env`. |
+| `scripts/newest-tags.py` | Resolves the newest published tag per quip image from the GitLab registry, newest by publish time. Two anonymous GraphQL requests, stdlib-only Python 3.11+. Takes the output path as its argument, so `make localdev` calls it as `newest-tags.py data/localdev.tags.env` rather than redirecting — the script reads the previous run's tags and reuses them when the registry does not answer. Echoes back any `QUIP_*_TAG` already pinned in `.env` or the environment. |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle). |
 | `tests/fixtures/v0.1/{cpu,cuda,qpu,already-v0.2}/data/config.toml` | Trimmed real operator configs used by the converter test suite. |
 | `tests/test_upgrade_config.py` | 28 pytest cases against `scripts/upgrade-config.py`. |

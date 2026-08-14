@@ -2,6 +2,22 @@
 
 ## v0.3 (unreleased)
 
+### Localdev resolves the newest image tags from the registry
+
+`make localdev` no longer runs whatever `latest` points at. It calls `scripts/newest-tags.py`, which asks the GitLab registry which tag each quip image published most recently. The script writes the answers to `data/localdev.tags.env`, which compose reads after `.env`.
+
+CI does not move `latest` for rc builds, so a localdev stack that tracked `latest` ran an old build without saying so. The validator is the clearest case: `latest` and `v0.2` are the same digest, node `0.2.1`, runtime `specVersion` 112, while the newest tag `v0.2.2-rc5` carries `specVersion` 115.
+
+Newest means most recently published. The four repositories use different tag schemes, so publish time is the one ordering that covers them all. CI publishes a version tag, a `sha-` commit alias, and sometimes `latest` for a single build, within the same second. The resolver groups tags by digest and reports the most descriptive name on the winning image, preferring `v0.2.2-rc6` over the `sha-d1783ed8` alias for the same bytes.
+
+Pins still win. The resolver passes through a `QUIP_*_TAG` set in `.env` or the environment, and skips the lookup for that image.
+
+A registry outage does not stop a localdev run. When a lookup fails, the resolver reuses the tags from the previous run, or falls back to `latest` when there is no previous run. It reports what it did on stderr and exits 0.
+
+The script reads the GraphQL API, which sorts tags by publish time on the server. The whole resolve costs two requests and about six seconds. Auth is anonymous, so any operator can run it as is.
+
+`make testnet` still tracks `latest`. A release pointer is what a production stack wants.
+
 ### Image tags default to `latest`
 
 Every quip image now defaults to `latest` instead of a pinned version:

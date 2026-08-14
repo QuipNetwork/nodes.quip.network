@@ -1,6 +1,10 @@
 .env
 data/config.toml
+# Image tags make localdev resolves from the registry on each run.
+data/localdev.tags.env
 data/runtime/
+# Miner attempt spool, written while a round is in flight.
+data/attempts/
 data/trust.db
 data/certs/
 data/telemetry/
@@ -22,4 +26,5 @@ __pycache__/
 .beads/
 .agents/
 .codex/
+.claude/
 CLAUDE.md
