@@ -19,6 +19,31 @@
 {
 	email {$CERT_EMAIL:hostmaster@localhost}
 	# cert_issuer zerossl {$ZEROSSL_API_KEY}
+
+	# Caddy picks its log encoder from the output: console when stderr is a
+	# terminal, JSON otherwise. Under compose it is never a terminal, so pin
+	# console explicitly — these lines are read by humans in `docker compose
+	# logs` and in the node manager's log pane, not by a log shipper.
+	#
+	# The filter wrapper drops the fields that make a single 502 span twenty
+	# lines: the full request header map, the duplicate client address, and
+	# Caddy's internal error id and stack trace. What survives is the part
+	# that identifies the failure — method, host, URI, status, upstream error.
+	log {
+		format filter {
+			wrap console {
+				time_format wall_milli
+				time_local
+				level_format upper
+			}
+			request>headers delete
+			request>remote_port delete
+			request>client_ip delete
+			request>proto delete
+			err_trace delete
+			err_id delete
+		}
+	}
 }
 
 (routing) {
