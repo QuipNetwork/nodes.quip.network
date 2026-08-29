@@ -53,6 +53,8 @@ The base compose stack runs the validator with stock flags. Bootnode operators n
    CERT_EMAIL=ops@example.com
    ```
 
+4. Expect the first start to wait. The miner, dashboard, and faucet gate on the validator's healthcheck, which passes once the node reaches the chain head. On a fresh host that wait covers the whole initial sync. See [Initial sync](../README.md#initial-sync) in the main guide.
+
 ## Session keys (BABE / GRANDPA)
 
 After the validator's first boot, insert hybrid BABE and GRANDPA keys derived from the operator's session mnemonic. Procedure from [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/testnet-keys.md), executed inside the validator container so the keystore mount picks them up:

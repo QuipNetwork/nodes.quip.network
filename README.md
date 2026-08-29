@@ -494,6 +494,7 @@ docker compose --profile cpu up -d --force-recreate
 | `data/validator-data/` | Validator base path (keystore, db, libp2p key; gitignored) |
 | `docs/testnet-deployment.md` | Operator host setup for canonical testnet bootnode validators |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle) |
+| `scripts/validator-healthcheck.sh` | Validator sync gate, mounted into the validator container as its healthcheck |
 | `.env` | Compose interpolation source: QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_KEY, tags + knobs (not checked in) |
 | `env.example` | Template for `.env` |
 | `config/quip-miner.{cpu,cuda}.toml` | Miner first-run config templates (testnet faucet_url baked in), mounted over the image's template path |
