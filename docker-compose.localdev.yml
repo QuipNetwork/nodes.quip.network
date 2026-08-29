@@ -71,6 +71,12 @@ services:
 
   cuda:
     container_name: quip-cuda-localdev
+    environment:
+      # Localdev only: surfaces the coordinator's per-grant "dispatch drain"
+      # line (added/dispatched/staged), which distinguishes a credit-starved
+      # miner from a wedged one. The subscriber reads RUST_LOG; the config
+      # file's [miner] log_level drives the node, not this process.
+      RUST_LOG: "quip_coordinator=debug,info"
 
   quip-faucet:
     container_name: quip-faucet-localdev
