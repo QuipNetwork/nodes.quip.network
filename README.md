@@ -241,6 +241,40 @@ docker compose --profile cpu up -d
 docker compose --profile cuda up -d
 ```
 
+#### Initial sync
+
+The first testnet start waits for the validator to sync. `up -d` holds until the
+validator reaches the chain head. On a fresh install this takes hours, because the
+stack runs an archive node and replays every block from genesis. Later starts return
+at once, because the node keeps its database in `data/validator-data`.
+
+The miner and the dashboard wait on purpose. Both read the chain through the
+validator, and both give wrong answers against a node that is still catching up:
+
+- The miner's coordinator reads the runtime at the validator's best block. A node at
+  genesis reports the genesis runtime, so the coordinator exits with
+  `validator runtime quip/103 exposes QuantumPowApi v1, but this coordinator drives
+  v2 — upgrade the validator`. The validator does not need an upgrade. It needs to
+  finish the sync.
+- The dashboard indexer scans from genesis. A validator at genesis gives it an
+  empty chain, which it caches as the network.
+
+Watch progress from a second terminal:
+
+```bash
+docker compose --profile cpu logs -f quip-validator
+docker compose --profile cpu ps          # quip-validator: (health: starting) -> (healthy)
+```
+
+A syncing node reports its target block and its peer count:
+`⚙️ Syncing 234.6 bps, target=#1353316 (4 peers)`.
+
+A node that stays at block 0 with 0 peers is on the wrong genesis. Check that
+`--chain` points at `chain-specs/quip-testnet.json`, whose genesis is
+`0xa139…a9a7`. The binary also carries a built-in `quip-testnet` preset, and that
+preset is a different genesis that no public node runs. Pass the file, not the
+preset name.
+
 #### Local dev chain
 
 For experimentation without joining the testnet — `//Alice` as the sole authority + sudo + faucet funder. Two ways:

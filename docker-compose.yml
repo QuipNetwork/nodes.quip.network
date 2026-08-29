@@ -58,6 +58,13 @@ x-dashboard: &dashboard
   depends_on:
     postgres:
       condition: service_healthy
+    # The indexer scans from genesis, so against a validator that is still
+    # catching up it indexes an empty chain and caches that as the network.
+    # required: false keeps miner-only deployments working, where the dashboard
+    # reads a remote front door (QUIP_VALIDATOR_RPC_URLS) and runs no validator.
+    quip-validator:
+      condition: service_healthy
+      required: false
 
 services:
   # Both miner images ship the v0.3 quip-coordinator with every miner binary
@@ -115,8 +122,14 @@ services:
         aliases:
           - quip-miner
     depends_on:
+      # service_healthy, not service_started: the coordinator's preflight reads
+      # the runtime at the validator's best block, so against a node that is
+      # still catching up it reads the genesis runtime (quip/103, QuantumPowApi
+      # v1) and exits. Waiting for the sync to finish is what makes that check
+      # meaningful. A fresh testnet install therefore holds here until the
+      # initial sync completes; see "Initial sync" in README.md.
       quip-validator:
-        condition: service_started
+        condition: service_healthy
         required: false
 
   cuda:
@@ -157,8 +170,10 @@ services:
         aliases:
           - quip-miner
     depends_on:
+      # service_healthy for the same reason as the cpu service above: the
+      # coordinator's preflight fails against a validator that is still syncing.
       quip-validator:
-        condition: service_started
+        condition: service_healthy
         required: false
     deploy:
       resources:
@@ -192,6 +207,9 @@ services:
       # override in .env for local dev:
       #   QUIP_CHAIN_SPEC=./data/chain-spec.json
       - ${QUIP_CHAIN_SPEC:-./chain-specs/quip-testnet.json}:/etc/quip/chain-spec.json:ro
+      # Sync gate for the miner and the dashboard. Mounted rather than baked in
+      # because the node image ships no HTTP client to probe its own RPC with.
+      - ./scripts/validator-healthcheck.sh:/usr/local/bin/validator-healthcheck:ro
     ports:
       - "30333:30333/tcp"
       - "30333:30333/udp"
@@ -229,6 +247,17 @@ services:
       # is set). Bootnode operators replace this with --node-key-file=/data/node-key
       # per docs/testnet-deployment.md so their peer id matches the chain spec.
       - --unsafe-force-node-key-generation
+    # Healthy means synced to the chain head. Initial sync of the live testnet
+    # replays every block under the archive pruning set above, so retries x
+    # interval has to cover hours, not minutes: docker marks a container
+    # unhealthy for good once retries are exhausted, and the gated services
+    # would never start. start_period keeps those early failures from counting.
+    healthcheck:
+      test: ["CMD", "validator-healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 24h
 
   # Optional faucet sidecar. Layered additively on top of a validator profile:
   #   docker compose --profile cpu --profile faucet up -d
@@ -249,8 +278,13 @@ services:
         aliases:
           - quip-faucet
     depends_on:
+      # The faucet signs and submits balance transfers, which a validator that
+      # is still catching up cannot process against the current runtime. An
+      # operator who points QUIP_FAUCET_NODE_URL at a remote node still waits
+      # for the local validator here; drop this dependency in an override if
+      # that wait is not wanted.
       quip-validator:
-        condition: service_started
+        condition: service_healthy
         required: false
     command:
       - --node-url=${QUIP_FAUCET_NODE_URL:-ws://quip-validator:9944}
