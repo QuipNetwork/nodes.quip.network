@@ -41,7 +41,7 @@ x-dashboard: &dashboard
     # and /api/v1 → quip-miner. Pointing it straight at quip-validator:9944
     # would 404 the /api/v1 probe, so the dashboard would mis-identify "self" as
     # some other reachable on-chain node. Miner-only nodes can override with a
-    # remote front door (e.g. wss://bootnode-1.testnet.quip.network/rpc).
+    # remote front door (e.g. wss://bootnode-1.aglais.quip.network/rpc).
     QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-caddy:8088/rpc}
     PORT: "3001"
     RUN_SERVER: "true"
@@ -117,6 +117,11 @@ services:
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
     volumes:
       - ./data:/data
+      # First-run config template, mounted over the image's own. The image
+      # entrypoint seeds /data/config.toml from /app/config.toml when the file
+      # is missing, and the upstream template still names the retired testnet
+      # faucet. See config/quip-miner.toml.
+      - ./config/quip-miner.toml:/app/config.toml:ro
     networks:
       default:
         aliases:
@@ -162,6 +167,11 @@ services:
       CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: ${QUIP_GPU_UTILIZATION:-100}
     volumes:
       - ./data:/data
+      # First-run config template, mounted over the image's own. The image
+      # entrypoint seeds /data/config.toml from /app/config.toml when the file
+      # is missing, and the upstream template still names the retired testnet
+      # faucet. See config/quip-miner.toml.
+      - ./config/quip-miner.toml:/app/config.toml:ro
       # MPS control pipe shared with the host daemon. Resolves to an empty dir
       # (no MPS) on hosts without a running daemon — safe to mount regardless.
       - /tmp/nvidia-mps:/tmp/nvidia-mps
@@ -192,7 +202,10 @@ services:
   # Inbound 30333/tcp and 30333/udp must be reachable from the public internet
   # for libp2p peering.
   quip-validator:
-    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-latest}
+    # Pinned to the Aglais relaunch build. `latest` still points at the
+    # pre-Aglais image, which cannot run the runtime 117 genesis. Move this
+    # back to `latest` once a release moves the pointer.
+    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-wipe-rc4}
     pull_policy: always
     container_name: quip-validator
     restart: unless-stopped
@@ -202,11 +215,15 @@ services:
     environment: *runtime-user
     logging: *default-logging
     volumes:
-      - ./data/validator-data:/data
-      # Chain spec selector. Defaults to the canonical Quip Testnet spec;
-      # override in .env for local dev:
-      #   QUIP_CHAIN_SPEC=./data/chain-spec.json
-      - ${QUIP_CHAIN_SPEC:-./chain-specs/quip-testnet.json}:/etc/quip/chain-spec.json:ro
+      # Validator base path (db, keystore, libp2p key). Aglais keeps the
+      # chain id `quip_testnet`, so its db lands in the same chains/quip_testnet
+      # subdir the retired testnet used. A fresh directory keeps the two apart;
+      # the old one stays at ./data/validator-data until the operator deletes it.
+      - ./data/aglais-chain-db:/data
+      # Chain spec selector. Defaults to the Aglais spec (the Quip test
+      # network). Override in .env to join a private network with its own
+      # spec. Local development uses `make localdev` (--chain=dev) instead.
+      - ${QUIP_CHAIN_SPEC:-./chain-specs/aglais-network.json}:/etc/quip/chain-spec.json:ro
       # Sync gate for the miner and the dashboard. Mounted rather than baked in
       # because the node image ships no HTTP client to probe its own RPC with.
       - ./scripts/validator-healthcheck.sh:/usr/local/bin/validator-healthcheck:ro

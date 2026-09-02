@@ -63,7 +63,7 @@ def test_conversion_produces_valid_v02_config(fixture, tmp_path):
     assert "global" not in parsed
     assert parsed["miner"]["validators"] == ["ws://quip-validator:9944"]
     assert parsed["miner"]["signer_key"] == "/data/keystore.json"
-    assert parsed["miner"]["faucet_url"] == "https://faucet.testnet.quip.network"
+    assert parsed["miner"]["faucet_url"] == "https://faucet.aglais.quip.network"
     assert "rest_host" in parsed["miner"]
     assert parsed["miner"]["rest_port"] == 8086
 
@@ -142,9 +142,49 @@ def test_backfill_on_already_v02(tmp_path):
     parsed = tomllib.loads((data_dir / "config.toml").read_text())
     # Empty list removed entirely → the miner's built-in fallback applies.
     assert "validators" not in parsed["miner"]
-    assert parsed["miner"]["faucet_url"] == "https://faucet.testnet.quip.network"
+    assert parsed["miner"]["faucet_url"] == "https://faucet.aglais.quip.network"
     assert parsed["miner"]["rest_port"] == 8086
     assert (data_dir / "config.toml.pre-backfill.bak").is_file()
+
+
+def test_backfill_rewrites_retired_testnet_faucet(tmp_path):
+    """A config that still funds from the retired testnet faucet is moved to
+    the Aglais faucet. The miner self-bootstraps again on the new chain, so a
+    stale URL means an unfunded miner."""
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+    config_path = data_dir / "config.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            "[miner]\n",
+            '[miner]\nfaucet_url = "https://faucet.testnet.quip.network"  # keep me\n',
+            1,
+        )
+    )
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    text = config_path.read_text()
+    parsed = tomllib.loads(text)
+    assert parsed["miner"]["faucet_url"] == "https://faucet.aglais.quip.network"
+    assert "# keep me" in text
+    assert "faucet.testnet.quip.network -> https://faucet.aglais.quip.network" in result.stderr
+
+
+def test_backfill_leaves_custom_faucet_alone(tmp_path):
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+    config_path = data_dir / "config.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            "[miner]\n", '[miner]\nfaucet_url = "https://faucet.example.com"\n', 1
+        )
+    )
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads(config_path.read_text())
+    assert parsed["miner"]["faucet_url"] == "https://faucet.example.com"
 
 
 def test_backfill_is_idempotent(tmp_path):

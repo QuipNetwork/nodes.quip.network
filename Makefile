@@ -51,7 +51,7 @@ help:
 	@echo "  make pull              Pull images for PROFILE"
 	@echo "  make down              Tear down both profile sets"
 	@echo "  make logs              Tail validator + miner logs"
-	@echo "  make clean-chain       Wipe data/validator-data/chains"
+	@echo "  make clean-chain       Wipe data/aglais-chain-db/chains"
 	@echo "  make clean             Full reset: down + wipe chain, pgdata volume, dashboard-data"
 	@echo ""
 	@echo "Variables (override on cmdline):"
@@ -180,9 +180,9 @@ logs:
 # the rm fallback covers Linux/CI hosts without `trash` installed.
 clean-chain:
 	@if command -v trash >/dev/null 2>&1; then \
-	    trash data/validator-data/chains 2>/dev/null || true; \
+	    trash data/aglais-chain-db/chains 2>/dev/null || true; \
 	else \
-	    rm -rf data/validator-data/chains; \
+	    rm -rf data/aglais-chain-db/chains; \
 	fi
 
 # Full reset. Tears the stack down, wipes the chain, removes the postgres

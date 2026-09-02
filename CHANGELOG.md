@@ -2,6 +2,45 @@
 
 ## v0.3 (unreleased)
 
+### Aglais is the default network
+
+Aglais is the Quip test network, in the way Sepolia is the Ethereum test
+network. It started on 2026-09-02 from a fresh genesis (runtime 117, transaction
+version 7, token `AGLS`) and replaces the previous testnet. The previous
+testnet retires after operators move. This stack joins Aglais by default.
+
+- `chain-specs/aglais-network.json` replaces `chain-specs/quip-testnet.json`.
+  The `wipe-rc4` validator image exports it. Genesis is `0x59e0…c286`. The
+  bootnodes are `bootnode-{1,2,3}.aglais.quip.network`.
+- The validator base path moved from `data/validator-data` to
+  `data/aglais-chain-db`. Aglais keeps the chain id `quip_testnet`, so a shared
+  directory would hand the old database to the new spec, which rejects it on
+  genesis mismatch.
+- `QUIP_VALIDATOR_TAG` defaults to `wipe-rc4` instead of `latest`. `latest`
+  still points at the pre-Aglais image. A later rc release moves the pointer.
+- `make updateconfig` rewrites a `faucet_url` that points at the retired
+  testnet faucet to `https://faucet.aglais.quip.network`. New configs get the
+  Aglais faucet.
+- `config/quip-miner.toml` is mounted over the miner image's first-run
+  template (`/app/config.toml`) in the `cpu` and `cuda` services. The
+  upstream template in `v0.3.1-rc3-aglais-prerelease` still names the retired
+  faucet, so a fresh install seeded from the image would fund against the
+  wrong chain.
+- The documented export procedure passes `--entrypoint
+  /usr/local/bin/quip-network-node`. The image entrypoint prints a line to
+  stdout before the JSON, which corrupts a plain redirect.
+- `data/chain-spec.json` (the `quip-local` preset) is removed. It carried the
+  pre-Aglais runtime, and the current image no longer has that preset. Local
+  development uses `make localdev`, which runs the image's `--chain=dev`.
+  `QUIP_CHAIN_SPEC` remains for private networks.
+- The bootnode runbook inserts session keys with `insert-hybrid-key` and the
+  `hybrid-babe-h444` / `hybrid-grandpa-h244` schemes. The stock `key insert`
+  schemes produce keys the runtime 117 genesis does not accept.
+
+**Operator impact**: `git pull`, `make updateconfig`, drop the dashboard state,
+`docker compose --profile cpu up -d`. See "Upgrading to Aglais" in the README.
+The old database stays at `data/validator-data` until you delete it.
+
 ### The miner, dashboard, and faucet wait for a synced validator
 
 `quip-validator` now carries a healthcheck, and the three services that read the

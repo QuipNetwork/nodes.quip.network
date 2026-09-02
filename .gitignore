@@ -10,6 +10,7 @@ data/certs/
 data/telemetry/
 data/logs/
 data/webroot/
+data/aglais-chain-db/
 data/validator-data/
 data/node-key
 data/wallet/

@@ -78,11 +78,16 @@ PROMOTED_GLOBAL_KEYS = (
 # a warning when overriding.
 CADDY_PROXY_REST_PORT = 8086
 
-# Canonical testnet faucet, written into configs that lack faucet_url so
-# the miner's first-boot self-bootstrap (register + fund) keeps working
-# now that the QUIP_FAUCET_URL env var is gone (the v0.2.1-rc miner
-# images have no configuration env vars).
-FAUCET_TESTNET_URL = "https://faucet.testnet.quip.network"
+# Aglais faucet (the Quip test network), written into configs that lack
+# faucet_url so the miner's first-boot self-bootstrap (register + fund)
+# keeps working now that the QUIP_FAUCET_URL env var is gone (the
+# v0.2.1-rc miner images have no configuration env vars).
+FAUCET_TESTNET_URL = "https://faucet.aglais.quip.network"
+
+# Faucet of the retired pre-Aglais testnet. A config still pointing here
+# is rewritten to FAUCET_TESTNET_URL: the miner self-bootstraps again on
+# the new chain, and the old faucet funds the wrong one.
+RETIRED_FAUCET_URLS = ("https://faucet.testnet.quip.network",)
 
 # Miner env vars with no consumer as of the quip-miner v0.2.1-rc
 # images — the miner is fully config-driven. Uncommented values are
@@ -526,9 +531,20 @@ def _backfill_validators(lines, bounds, miner, env_vals, notes):
     return []
 
 
-def _backfill_faucet(miner, env_vals, notes, warnings):
+def _backfill_faucet(lines, bounds, miner, env_vals, notes, warnings):
     """Handle faucet_url; returns insert lines (possibly empty)."""
+    mstart, mend = bounds
     if "faucet_url" in miner:
+        if miner["faucet_url"] in RETIRED_FAUCET_URLS:
+            pat = re.compile(r"^(\s*faucet_url\s*=\s*)(\"[^\"]*\"|'[^']*')")
+            for i in range(mstart, mend):
+                m = pat.match(lines[i])
+                if m:
+                    lines[i] = (
+                        m.group(1) + _emit_string(FAUCET_TESTNET_URL) + lines[i][m.end():]
+                    )
+                    break
+            notes.append(f"faucet_url {miner['faucet_url']} -> {FAUCET_TESTNET_URL}")
         return []
     if env_vals.get("QUIP_FAUCET_URL") == "":
         warnings.append(
@@ -592,7 +608,7 @@ def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
     notes = []
 
     inserts = _backfill_validators(lines, bounds, miner, env_vals, notes)
-    inserts += _backfill_faucet(miner, env_vals, notes, warnings)
+    inserts += _backfill_faucet(lines, bounds, miner, env_vals, notes, warnings)
     inserts += _backfill_rest(lines, bounds, miner, notes, warnings)
     if inserts:
         lines[bounds[0] + 1 : bounds[0] + 1] = inserts
