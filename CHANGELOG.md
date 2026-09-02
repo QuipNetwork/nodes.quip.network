@@ -2,6 +2,38 @@
 
 ## v0.3 (unreleased)
 
+### The miner, dashboard, and faucet wait for a synced validator
+
+`quip-validator` now carries a healthcheck, and the three services that read the
+chain through it moved from `condition: service_started` to
+`condition: service_healthy`.
+
+All three give wrong answers against a validator that is still catching up. The
+miner's coordinator reads the runtime at the validator's best block, so a node at
+genesis reports the genesis runtime and the preflight exits with `validator runtime
+quip/103 exposes QuantumPowApi v1, but this coordinator drives v2`. That message
+names an upgrade, but the validator does not need one: it needs to finish syncing.
+Before this change the coordinator crash-looped for the length of the initial sync.
+The dashboard indexer scans from genesis and cached an empty chain as the network.
+The faucet cannot submit transfers against a node that has not reached the head.
+
+`scripts/validator-healthcheck.sh` is the check. It reads the `system_health` RPC
+over bash's `/dev/tcp`, because the node image ships no HTTP client. Healthy means
+not major-syncing, and either connected to peers or running a chain that expects no
+peers. The second arm is what keeps `make localdev` working, where Alice authors
+alone on `--chain=dev` and the peer count stays 0 forever.
+
+`start_period` is `24h`. Docker marks a container unhealthy for good after
+`retries` failures, and the gated services would then never start.
+
+**Operator impact**: a fresh testnet install holds on `docker compose up -d` until
+the initial sync completes, which takes hours under the archive pruning the stack
+sets. Watch it with `docker compose logs -f quip-validator`. Later starts return at
+once. A validator that stays at block 0 with 0 peers is on the wrong genesis, not
+mid-sync. Pass `chain-specs/quip-testnet.json`, whose genesis is `0xa139…a9a7`. Do
+not pass the binary's built-in `quip-testnet` preset. That preset is a different
+genesis that no public node runs.
+
 ### Localdev resolves the newest image tags from the registry
 
 `make localdev` no longer runs whatever `latest` points at. It calls `scripts/newest-tags.py`, which asks the GitLab registry which tag each quip image published most recently. The script writes the answers to `data/localdev.tags.env`, which compose reads after `.env`.
