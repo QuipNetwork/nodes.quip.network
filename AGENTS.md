@@ -6,7 +6,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 
 ## Purpose
 
-- Make it trivial for an operator to join the live Quip Testnet (`make testnet`) or spin up a self-contained dev chain (`make localdev`).
+- Make it trivial for an operator to join Aglais, the Quip test network (`make testnet`), or spin up a self-contained dev chain (`make localdev`).
 - Compose all the moving pieces (validator, miner, dashboard, postgres, Caddy) into a single `--profile cpu up -d` flow with no manual chain-state seeding.
 - Provide an in-place v0.1 → v0.2 config migration (`make updateconfig`) so existing operators don't have to hand-edit configs across two breaking schema changes (TOML + `.env`).
 
@@ -24,21 +24,21 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 
 | Path | Purpose |
 |---|---|
-| `docker-compose.yml` | Canonical stack — testnet by default. Validator bundled into `cpu`/`cuda` profiles. |
+| `docker-compose.yml` | Canonical stack — Aglais (the Quip test network) by default. Validator bundled into `cpu`/`cuda` profiles. |
 | `docker-compose.localdev.yml` | **Opt-in only.** Layered on top of base via `make localdev` or explicit `-f` flags. Flips validator to `--chain=dev`, adds `quip-faucet` sidecar, and **namespaces the whole stack** — every service gets a `-localdev` `container_name` and the volumes get a `quip-localdev-` prefix, run under the `-p quip-localdev` project, so it coexists with a live testnet stack instead of colliding over the fixed global names (`quip-postgres`, `quip-validator`, …) in the base file. Was previously `docker-compose.override.yml` — see migration notes below. |
 | `caddy/Caddyfile` | Reverse proxy + auto-TLS. Routes `/rpc` → `quip-validator:9944`, `/api/faucet/*` → `quip-faucet:8087`, `/api/v1/*` → `quip-miner:8086`, `/` → `quip-dashboard:3001`. |
+| `config/quip-miner.toml` | Miner first-run config template, mounted over the image's `/app/config.toml` in the `cpu`/`cuda` services. Mirrors upstream `docker/config.toml` with `faucet_url` set to the Aglais faucet; the upstream template still names the retired faucet. Drop the mount when upstream catches up. |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs (colocated dev faucet). `make localdev` copies the profile's variant to `data/config.toml` before bringing the stack up. |
-| `chain-specs/quip-testnet.json` | Mirrored from `quip-validator` via `build-spec --chain quip-testnet --raw`. Re-export when upstream genesis changes. |
-| `chain-specs/quip-testnet.json.sha256` | SHA-256 checksum sidecar — always update alongside the spec. |
+| `chain-specs/aglais-network.json` | Aglais chain spec. Mirrored from the `wipe-rc4` `quip-validator` image via `export-chain-spec --chain quip-testnet --raw` (the upstream preset name is unchanged). Re-export when upstream genesis changes. |
+| `chain-specs/aglais-network.json.sha256` | SHA-256 checksum sidecar — always update alongside the spec. |
 | `data/config.toml` | Canonical v0.2 `[miner]` template (gitignored copy lives at operator's `data/config.toml`). |
 | `data/config.cpu.toml`, `data/config.cuda.toml` | Mode-specific templates operators `cp` to `data/config.toml` on first run. |
-| `data/chain-spec.json` | Local dev chain spec (`quip-local` preset). |
 | `scripts/upgrade-config.py` | v0.1 → v0.2 config converter. Stdlib-only Python 3.11+. Migrates both `data/config.toml` and the sibling `.env`. |
 | `scripts/newest-tags.py` | Resolves the newest published tag per quip image from the GitLab registry, newest by publish time. Two anonymous GraphQL requests, stdlib-only Python 3.11+. Takes the output path as its argument, so `make localdev` calls it as `newest-tags.py data/localdev.tags.env` rather than redirecting — the script reads the previous run's tags and reuses them when the registry does not answer. Echoes back any `QUIP_*_TAG` already pinned in `.env` or the environment. |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle). |
 | `scripts/validator-healthcheck.sh` | The validator's docker healthcheck, bind-mounted to `/usr/local/bin/validator-healthcheck`. Reads `system_health` over bash's `/dev/tcp`, because the node image ships no HTTP client. Exits 0 when the node is not major-syncing and either has peers or runs a chain that expects none. The miner, dashboard, and faucet gate on it with `condition: service_healthy`. |
 | `tests/fixtures/v0.1/{cpu,cuda,qpu,already-v0.2}/data/config.toml` | Trimmed real operator configs used by the converter test suite. |
-| `tests/test_upgrade_config.py` | 28 pytest cases against `scripts/upgrade-config.py`. |
+| `tests/test_upgrade_config.py` | 34 pytest cases against `scripts/upgrade-config.py`. |
 | `cron.sh` | Auto-update sidecar (hourly cron) — detects running profiles from container names, pulls + recreates only on digest change. |
 | `Makefile` | Operator entry points: `make testnet`, `make localdev`, `make updateconfig`, etc. |
 | `env.example` | Template for `.env`. Read alongside `docker-compose.yml` to see all defaults. |
@@ -86,13 +86,18 @@ The `cuda` service is wired for [NVIDIA MPS](https://docs.nvidia.com/deploy/mps/
 
 ### Chain spec drift
 
-`chain-specs/quip-testnet.json` mirrors the upstream `quip-validator` v0.2 image's baked-in spec. If `shasum -a 256 -c chain-specs/quip-testnet.json.sha256` fails after an upstream image bump, re-export:
+`chain-specs/aglais-network.json` mirrors the `wipe-rc4` `quip-validator` image's baked-in `quip-testnet` preset. Aglais is the Quip test network (like Sepolia for Ethereum). It started 2026-09-02 from a fresh genesis (`0x59e0…c286`, runtime 117) and keeps the chain id `quip_testnet`. If `shasum -a 256 -c chain-specs/aglais-network.json.sha256` fails after an upstream image bump, re-export:
 
 ```bash
-docker run --rm registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.2 \
-  build-spec --chain quip-testnet --raw > chain-specs/quip-testnet.json
-(cd chain-specs && shasum -a 256 quip-testnet.json > quip-testnet.json.sha256)
+docker run --rm --entrypoint /usr/local/bin/quip-network-node \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:wipe-rc4 \
+  export-chain-spec --chain quip-testnet --raw > chain-specs/aglais-network.json
+(cd chain-specs && shasum -a 256 aglais-network.json > aglais-network.json.sha256)
 ```
+
+`--entrypoint` is required: the image entrypoint prints `entrypoint: exec as uid=…` to stdout before the JSON, which corrupts a plain redirect.
+
+The validator base path is `data/aglais-chain-db`, not `data/validator-data`. Because the chain id did not change with the relaunch, the old directory holds a `chains/quip_testnet` database from the retired genesis. Mounting it would fail on genesis mismatch.
 
 A stale chain spec presents as: validator's libp2p connects fine, but `system_health.peers=0` because the substream-level handshake rejects on genesis-hash mismatch. Real symptom is silent — debug logs (`-l sub-libp2p=debug,litep2p=debug`) show `failed to negotiate substream ... block-announces`.
 
@@ -114,13 +119,13 @@ make testnet     →  (PROFILE=cuda: start host MPS daemon) docker compose --pro
 make localdev    →  docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d   (dev chain, own namespace)
 make updateconfig → python3 scripts/upgrade-config.py data                          (v0.1 → v0.2)
 make down        →  tear down BOTH projects (testnet default + quip-localdev)
-make clean       →  down + wipe chain + drop pgdata + quip-localdev-pgdata volumes + wipe dashboard-data   (destructive)
+make clean       →  down + wipe chain + drop aglais-pgdata + quip-localdev-pgdata volumes + wipe dashboard-data   (destructive)
 ```
 
 The flow on a clean `make testnet` boot:
 
-1. `quip-validator` starts → joins testnet via the three bootnodes embedded in `chain-specs/quip-testnet.json`.
-2. `cpu` (or `cuda`) miner starts → self-bootstraps on startup: funds its account via `https://faucet.testnet.quip.network` and registers it in `QuantumPow.Miners` (retrying until the validator has synced), then mines against `DefaultTopology = advantage2_system1`.
+1. `quip-validator` starts → joins Aglais via the three bootnodes embedded in `chain-specs/aglais-network.json`.
+2. `cpu` (or `cuda`) miner starts → self-bootstraps on startup: funds its account via `https://faucet.aglais.quip.network` and registers it in `QuantumPow.Miners` (retrying until the validator has synced), then mines against `DefaultTopology = advantage2_system1`.
 3. `dashboard` + `postgres` + `caddy` come up alongside.
 
 ---
@@ -159,8 +164,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `[global]` (table) | `[miner]` | Rename. |
 | `[global].node_name` | `[miner].node_name` | Most important field — carried over by the converter. |
 | `[global].public_host`, `.public_port` | `[miner].public_host`, `.public_port` | Promoted to first-class (was commented in v0.1). |
-| `[global].rest_host` | `[miner].rest_host` | Direct copy. |
-| `[global].rest_port` | `[miner].rest_port` (**forced to 8086**) | Caddy now proxies `/api/v1/*` to `quip-miner:8086` (the upstream image default). v0.1 values like 443 (miner-terminated TLS) break the Caddy upstream. Converter forces 8086 + warns. |
+| `[global].rest_host`, `.rest_port` | `[dashboard].listen` | v0.2 put these in `[miner]`. v0.3 removed both and serves the REST surface from `[dashboard]`. The value is pinned to `0.0.0.0:8086` because Caddy proxies `/api/v1/*` to `quip-miner:8086`. A v0.1 port such as 443, used when the miner served TLS itself, breaks the Caddy upstream, so the converter carries nothing over and warns. |
 | `[global].log_level`, `.node_log` | `[miner].log_level`, `.node_log` | Promoted; `node_log` is now rotating 10MB × 5 (was unbounded in v0.1). |
 | `[global].secret` | dropped | Deterministic-key seed replaced by hybrid sr25519 + ML-DSA-44 keystore at `signer_key`. |
 | `[global].genesis_config` | dropped | Genesis owned by validator (chain spec baked into binary). |
@@ -172,10 +176,22 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `[global].http_log` | dropped | aiohttp logger no longer split out — shares `node_log`. |
 | `[global].telemetry_enabled`, `.telemetry_dir` | dropped | File-based per-block telemetry replaced by `/api/v1/*` REST surface. |
 | `[telemetry_api]` table | dropped | In-process bearer-token auth gone; access control is deployment-layer (reverse-proxy auth, network policy). |
-| `[miner].validators` | **new, required** | Ordered failover list of substrate WS URLs. Default in v0.2: `["ws://quip-validator:9944"]` (the colocated bundled validator). |
+| `[miner].validators` | **new, required** | Ordered failover list of substrate WS URLs. Default `["ws://quip-validator:9944", "ws://127.0.0.1:9944"]`, matching the coordinator's own built-in fallback. Writing only the first entry silently removes the loopback fallback. |
 | `[miner].signer_key` | **new, required** | Path to the hybrid sr25519 + ML-DSA-44 keystore. Default `/data/keystore.json`; entrypoint auto-generates on first start. |
-| `[miner].faucet_url` | **new, optional** | Dev auto-topup. Production: `https://faucet.testnet.quip.network` (docker-compose default). Set empty to opt out. |
+| `[miner].faucet_url` | **new, optional** | Dev auto-topup. Production: `https://faucet.aglais.quip.network` (converter default). Set empty to opt out. |
 | `[cpu]`, `[gpu]`, `[cuda.N]`, `[nvidia.N]`, `[metal]`, `[modal]`, `[qpu]`, `[dwave]`, `[ibm]`, `[braket]`, `[pasqal]`, `[ionq]`, `[origin]` | **preserved verbatim** | Backend tuning unchanged. Mode selection is now driven by which backend sections are present (`quip-miner resolve-modes` reads the config), not by env vars. |
+
+### v0.2 → v0.3
+
+| Change | Detail |
+|---|---|
+| `[miner].rest_host`, `[miner].rest_port` | **removed**. Replaced by `[dashboard].listen`. The coordinator names both keys verbatim when it rejects a config, so they must be deleted, not left behind. |
+| `[dashboard]` table | `listen` plus `data_dir`. `listen` must match `caddy/Caddyfile`, which proxies `/api/v1/*` to `quip-miner:8086`. Upstream's own template says `20100`; this stack uses `8086` and `config/quip-miner.toml` patches it. |
+| backend section | **required**. The coordinator refuses to start without one of `[cpu]`, `[cuda.N]`, `[metal]`, `[dwave]`/`[qpu]`. The converter warns instead of inventing one. |
+| `binary` per backend | Selects the miner variant. The cpu image bundles `quip-cpu-sa` and `quip-cpu-gibbs`. The converter writes `quip-cpu-sa` into a `[cpu]` table that has none. |
+| `[miner].faucet_url` | Repointed at the Aglais faucet when it still names the retired testnet. |
+
+`config/config.example.toml` is the canonical documented example of the v0.3 schema.
 
 **Loader aliases (do NOT rely on)**: `[miner].listen` → `rest_host`, `[miner].port` → `rest_port`. The v0.2 loader silently rewrites these for copy-paste safety, but semantics flipped (v0.1 QUIC peer port → v0.2 telemetry REST). The converter drops `listen`/`port` with a loud warning instead of using the alias, to prevent an operator with `port = 20049` from accidentally exposing the REST API on what used to be the peer port.
 
@@ -186,7 +202,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `QUIP_NODE_URL` | `QUIP_VALIDATOR_RPC_URLS` | Plural; comma-separated; drives both chain indexing and the miner REST surface that Caddy fronts on the same host. Forward-looking name; upstream dashboard image migration pending — currently the image still reads `QUIP_NODE_URL`. |
 | `QUIP_NODE_TOKEN` | dropped | Bearer-token access control is now deployment-layer. |
 | `QUIP_HOSTNAME` | unchanged (semantics expanded) | Drives Caddy listen + TLS. Comma-separated form (`host, host:20049`) needed for prod TLS. |
-| `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, `QUIP_REST_PORT`, `QUIP_REST_HOST`, `QUIP_SIGNER_KEY` | **dead** (config-driven) | The v0.2.1-rc miner images have no configuration env vars — set `[miner].validators` / `.faucet_url` / `.rest_port` / `.rest_host` / `.signer_key` in `data/config.toml` instead. `make updateconfig` backfills these keys and strips the dead lines from `.env`. |
+| `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, `QUIP_REST_PORT`, `QUIP_REST_HOST`, `QUIP_SIGNER_KEY` | **dead** (config-driven) | The v0.2.1-rc miner images have no configuration env vars — set `[miner].validators` / `.faucet_url` / `.signer_key` and `[dashboard].listen` in `data/config.toml` instead. `make updateconfig` backfills these keys and strips the dead lines from `.env`. |
 | `QUIP_VALIDATOR_TAG`, `QUIP_VALIDATOR_RPC_URLS`, `QUIP_FAUCET_TAG`, `QUIP_FAUCET_NODE_URL`, `QUIP_FAUCET_KEY`, `QUIP_FAUCET_RATE_LIMIT_SECONDS`, `QUIP_FAUCET_ALLOW_ANY_CHAIN`, `VALIDATOR_NAME`, `CERT_EMAIL`, `ZEROSSL_API_KEY`, `QUIP_MINER_CPUSET`, `QUIP_CHAIN_SPEC`, `QUIP_DASHBOARD_TAG` | new | See `env.example` for inline docs. |
 
 `.env` is compose's interpolation source only — there is no blanket `env_file:` anywhere in `docker-compose.yml`, so a variable reaches a container only when an `environment:` entry wires it through. `SUBSTRATE_BOOTNODES` was dropped entirely (compose can't split one env var into multiple `--bootnodes` argv tokens; use a `docker-compose.override.yml`).
@@ -220,21 +236,21 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 
 ## Chain spec
 
-- v0.1 had no on-chain state. v0.2 introduces `chain-specs/quip-testnet.json` (mirrored from `quip-validator`).
+- v0.1 had no on-chain state. v0.2 introduces a committed chain spec (mirrored from `quip-validator`). Since the 2026-09-02 relaunch it is `chain-specs/aglais-network.json` for Aglais, the Quip test network.
 - The genesis hash MUST match what bootnodes are serving. Mismatch presents as silent peering failure: libp2p layer connects, substream-level handshake rejects. Re-export procedure documented in README.
-- `chain-specs/quip-testnet.json.sha256` is the checksum sidecar — always re-export both files together.
+- `chain-specs/aglais-network.json.sha256` is the checksum sidecar — always re-export both files together.
 
 ## Topology + difficulty (on-chain state)
 
 - You must set `QuantumPow.DefaultTopology` on chain before any miner can submit a proof. The v0.3 coordinator does not exit. It logs `feeder: chain has no mining snapshot (no registered/mineable topology); staging nothing`.
 - `quip-coordinator seed-chain` is the operator tool for this. It registers the embedded `advantage2-system1` topology as `DefaultTopology` and sets `Difficulty`. Pass `--sudo-key` with a dev URI, a BIP39 mnemonic, a 32-byte hex master seed, or a keystore path. Or pass `--mnemonic-file` with a path to a BIP39 phrase.
 - `seed-chain` sets the default difficulty in the same run: `min_solutions = 5`, `max_energy_milli = -2_500_000`, `min_diversity_milli = 200`. The chain's difficulty controller adjusts the live threshold from there based on submission rate.
-- Sudo on the testnet is the operator-1 hybrid account (`5GZMo…aYi`) from `quip-validator/quip-testnet-keys/operator-1/`. Same account is also the faucet funder.
+- Sudo on Aglais is the operator-1 hybrid account (`5GXzt…YHaD`, rotated at the relaunch) from `quip-validator/quip-testnet-keys/operator-1/`. Same account is also the faucet funder.
 
 ## Faucet
 
 - v0.1: not present.
-- v0.2 testnet: `https://faucet.testnet.quip.network` (a separate Docker host running the `quip-faucet` image with operator-1 as the funder). Public; rate-limited per destination.
+- Aglais: `https://faucet.aglais.quip.network` (a separate Docker host running the `quip-faucet` image with operator-1 as the funder). Public; rate-limited per destination.
 - v0.2 localdev: `quip-faucet` sidecar in the localdev override, running `//Alice` as the funder. Pre-funded at genesis.
 - The miner auto-calls the faucet on first boot if `[miner].faucet_url` is set in `data/config.toml` — the miner self-bootstraps, no manual step (or separate bootstrap container) required.
 
@@ -253,11 +269,11 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 
 1. **Stale `docker-compose.override.yml` working-copy file.** `git pull` from the v0.2 rename commit (`d5c7ac3`) doesn't delete operator working-copy files. An untracked `docker-compose.override.yml` will still auto-load and override every `docker compose` call to the dev chain. Symptom: validator logs `📋 Chain specification: Development` instead of `Quip Testnet`. Fix: `rm docker-compose.override.yml` on the operator host.
 2. **`rest_port` semantic flip.** v0.1 had operators put any port (commonly 443) for miner-terminated TLS. v0.2 needs `rest_port = 80` so Caddy can proxy. Converter forces 80 + warns; operators editing config by hand can still misconfigure.
-3. **Chain spec drift.** Genesis hash changes upstream → silent peering failure. Always re-export `chain-specs/quip-testnet.json` after pulling a new `quip-validator` image.
+3. **Chain spec drift.** Genesis hash changes upstream → silent peering failure. Always re-export `chain-specs/aglais-network.json` after pulling a new `quip-validator` image.
 4. **Seed the topology before miners join a fresh testnet.** No miner can submit a proof until sudo seeds `DefaultTopology` via `quip-coordinator seed-chain`.
 5. **Dashboard env-var rename pending upstream.** This repo's `docker-compose.yml` + `env.example` use `QUIP_VALIDATOR_RPC_URLS` (plural). The current v0.2 dashboard image still reads `QUIP_NODE_URL` and `QUIP_VALIDATOR_RPC_URL` (singular). Until the upstream dashboard image migration lands, operators see `substrate=disabled` in dashboard logs. Workaround: hand-add `QUIP_NODE_URL=http://quip-miner:8086` and `QUIP_VALIDATOR_RPC_URL=ws://quip-validator:9944` to `.env` (and wire them into the dashboard service via a `docker-compose.override.yml`). Tracked in the open changes for `dashboard.quip.network`.
 6. **Non-root container can bind `:80`.** The miner runs as `uid=1000` but the upstream image grants `CAP_NET_BIND_SERVICE` (or equivalent), so binding `:80` works inside the container. Don't add a `:80` → `:8080` workaround thinking the unprivileged-port limit applies; it doesn't here.
-7. **QPU mode selection is now config-driven** (post upstream entrypoint rework). The image's entrypoint calls `quip-miner resolve-modes --config /data/config.toml` and spawns one `quip-miner <mode>` child per resolved backend. Earlier guidance about needing `QUIP_MODE=qpu` env var no longer applies — uncommenting `[qpu]` + `[dwave]` in the config is sufficient (plus `DWAVE_API_KEY` in `.env`).
+7. **QPU mode selection is now config-driven** (post upstream entrypoint rework). The image's entrypoint calls `quip-miner resolve-modes --config /data/config.toml` and spawns one `quip-miner <mode>` child per resolved backend. Earlier guidance about needing `QUIP_MODE=qpu` env var no longer applies — uncommenting `[qpu]` + `[dwave]` in the config is sufficient (plus `DWAVE_API_TOKEN`, and `DWAVE_API_SOLVER` on a real QPU, in `.env`). Credentials are never read from `config.toml`: the `[dwave]` table accepts budget and anneal keys only.
 8. **NVIDIA MPS is host-side.** The `MPS not active in container` miner log means no host MPS daemon, not an image defect. `make testnet PROFILE=cuda` starts it (`require-mps`); raw `docker compose --profile cuda up -d` does not — start `nvidia-cuda-mps-control -d` (likely as root) yourself first, or accept the software-nonce fallback. Unsupported under WSL2 / Docker Desktop. See the GPU/MPS working-conventions note.
 9. **Testnet and localdev are separate compose projects.** localdev runs under `-p quip-localdev` with `-localdev` container names; a single `docker compose down` only reaches one project. Use `make down` (hits both). Namespacing fixes *name* collisions, not *host-port* collisions — running both stacks at once still contends for `:80`/`:443`/`:20049`/`:30333`.
 
@@ -267,5 +283,5 @@ Verify any port from the public internet with `curl https://check.quip.network/c
 - [CHANGELOG.md](CHANGELOG.md) — same v0.1 → v0.2 changes, framed as release notes.
 - [CADDY.md](CADDY.md) — TLS / Caddy operator notes.
 - [docs/testnet-deployment.md](docs/testnet-deployment.md) — bootnode operator runbook.
-- [`quip-validator/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/genesis-quip-testnet.md) — upstream genesis + authorities.
-- [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/v0.2/docs/testnet-keys.md) — operator key derivation.
+- [`quip-validator/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-validator/-/blob/main/docs/genesis-quip-testnet.md) — upstream genesis + authorities.
+- [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/main/docs/testnet-keys.md) — operator key derivation.

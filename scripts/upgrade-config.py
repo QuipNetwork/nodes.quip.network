@@ -1,18 +1,30 @@
-"""Upgrade a v0.1 quip-node data/ directory to the v0.2 quip-miner schema.
+"""Upgrade a quip-node data/ directory to the v0.3 quip-miner schema.
 
-v0.1 ships a monolithic `[global]` table plus backend tables (`[cpu]`,
-`[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, ...). v0.2 renames `[global]` to
-`[miner]`, drops every P2P/transport key (substrate validator owns p2p
-now), promotes `public_host`/`public_port`/`log_level`/`node_log` into
-`[miner]`, and keeps the backend tables verbatim.
+Two hops, both handled here.
+
+v0.1 -> v0.2: v0.1 ships a monolithic `[global]` table plus backend
+tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, ...). v0.2
+renames `[global]` to `[miner]`, drops every P2P/transport key (the
+substrate validator owns p2p now), promotes `public_host`/`public_port`/
+`log_level`/`node_log` into `[miner]`, and keeps the backend tables
+verbatim.
+
+v0.2 -> v0.3: `[miner].rest_host` and `[miner].rest_port` are gone,
+replaced by the `[dashboard]` table. The v0.3 coordinator names both keys
+when it rejects a config, so they are removed rather than left behind. A
+backend section is now required, and each one selects its variant with
+`binary`. `faucet_url` is repointed at Aglais, the Quip test network, when
+it still names the retired testnet faucet.
+
+`config/config.example.toml` documents the resulting schema key by key.
 
 Stdlib-only (Python 3.11+ tomllib for read, hand-rolled writer for emit)
 so this runs anywhere the operator already has python3 — and on Python
 3.10 hosts via `make upgrade-config-docker`.
 
 Behavior:
-  - Detects v0.1 by presence of [global], v0.2 by [miner]. Refuses to run
-    on ambiguous (both) or unrecognized (neither) configs.
+  - Detects v0.1 by presence of [global], v0.2/v0.3 by [miner]. Refuses to
+    run on ambiguous (both) or unrecognized (neither) configs.
   - On v0.1 detection, moves every entry in DATA_DIR (except an existing
     .v0.1_backup itself) into DATA_DIR/.v0.1_backup/, then writes a fresh
     DATA_DIR/config.toml in v0.2 shape using values harvested from the
@@ -64,7 +76,6 @@ PROMOTED_GLOBAL_KEYS = (
     "node_name",
     "public_host",
     "public_port",
-    "rest_host",
     "log_level",
     "node_log",
 )
@@ -78,11 +89,45 @@ PROMOTED_GLOBAL_KEYS = (
 # a warning when overriding.
 CADDY_PROXY_REST_PORT = 8086
 
-# Canonical testnet faucet, written into configs that lack faucet_url so
-# the miner's first-boot self-bootstrap (register + fund) keeps working
-# now that the QUIP_FAUCET_URL env var is gone (the v0.2.1-rc miner
-# images have no configuration env vars).
-FAUCET_TESTNET_URL = "https://faucet.testnet.quip.network"
+# Chain endpoints the v0.3 coordinator uses when [miner].validators is absent.
+# Earlier revisions of this script wrote only the first entry, which silently
+# dropped the loopback fallback an untouched config gets for free.
+DEFAULT_VALIDATORS = ("ws://quip-validator:9944", "ws://127.0.0.1:9944")
+
+# v0.3 replaced [miner].rest_host / rest_port with the [dashboard] table. The
+# coordinator names the old keys verbatim when it rejects a v0.2 config, so we
+# fold them into [dashboard].listen rather than leaving them in place.
+DASHBOARD_LISTEN = f"0.0.0.0:{CADDY_PROXY_REST_PORT}"
+
+# The port upstream's own template binds. config/quip-miner.toml carried it
+# verbatim in the first Aglais commit, and that file seeds data/config.toml on
+# first run, so nodes installed in that window bind a port caddy/Caddyfile does
+# not proxy to. That value is this repo's defect rather than an operator
+# choice, so it is repaired instead of merely reported.
+UPSTREAM_TEMPLATE_LISTEN_PORT = 20100
+DASHBOARD_DATA_DIR = "/data/attempts"
+
+# v0.3 requires at least one mining backend section and picks the variant with
+# `binary`. The cpu image bundles quip-cpu-sa and quip-cpu-gibbs.
+CPU_DEFAULT_BINARY = "quip-cpu-sa"
+BACKEND_TABLE_ROOTS = frozenset({"cpu", "cuda", "metal", "dwave", "qpu"})
+
+# Backends that answer from a quantum processor. These reject work whenever
+# their access-time budget is spent, and the coordinator drops a rejected job
+# when no other backend can take it ("no alternative capable miner"). A config
+# naming only these mines nothing while the budget refills.
+QPU_BACKEND_ROOTS = frozenset({"dwave", "qpu"})
+
+# Aglais faucet (the Quip test network), written into configs that lack
+# faucet_url so the miner's first-boot self-bootstrap (register + fund)
+# keeps working now that the QUIP_FAUCET_URL env var is gone (the
+# v0.2.1-rc miner images have no configuration env vars).
+FAUCET_TESTNET_URL = "https://faucet.aglais.quip.network"
+
+# Faucet of the retired pre-Aglais testnet. A config still pointing here
+# is rewritten to FAUCET_TESTNET_URL: the miner self-bootstraps again on
+# the new chain, and the old faucet funds the wrong one.
+RETIRED_FAUCET_URLS = ("https://faucet.testnet.quip.network",)
 
 # Miner env vars with no consumer as of the quip-miner v0.2.1-rc
 # images — the miner is fully config-driven. Uncommented values are
@@ -167,13 +212,13 @@ def _emit_table(prefix, table, lines):
 def _render_miner_section(harvested):
     """Render the [miner] table from harvested v0.1 [global] values."""
     out = []
-    out.append("# quip-miner v0.2 [miner] schema, written by scripts/upgrade-config.py.")
-    out.append("# See data/config.toml in the nodes.quip.network repo for the canonical")
-    out.append("# template with inline documentation for every key.")
+    out.append("# quip-miner v0.3 [miner] schema, written by scripts/upgrade-config.py.")
+    out.append("# See config/config.example.toml in the nodes.quip.network repo for the")
+    out.append("# canonical example with inline documentation for every key.")
     out.append("")
     out.append("[miner]")
 
-    validators = harvested.get("validators") or ["ws://quip-validator:9944"]
+    validators = harvested.get("validators") or list(DEFAULT_VALIDATORS)
     out.append("validators = [")
     for url in validators:
         out.append(f"    {_emit_string(url)},")
@@ -182,18 +227,28 @@ def _render_miner_section(harvested):
     out.append(f'signer_key = {_emit_string(harvested.get("signer_key", "/data/keystore.json"))}')
     out.append(f"faucet_url = {_emit_string(FAUCET_TESTNET_URL)}")
 
-    # rest_port is forced to the v0.2 Caddy-proxy convention regardless of
-    # the v0.1 value; see _render_config for the warning emitted when this
-    # overrides a mismatched v0.1 setting.
-    out.append(f"rest_port = {CADDY_PROXY_REST_PORT}")
-    out.append(f'rest_host = {_emit_string(harvested.get("rest_host", "0.0.0.0"))}')
-
     for key in ("node_name", "public_host", "public_port", "log_level", "node_log"):
         if key in harvested:
             out.append(f"{key} = {_emit_value(harvested[key])}")
 
     out.append("")
     return out
+
+
+def _render_dashboard_section():
+    """Render the [dashboard] table with this stack's REST conventions.
+
+    v0.1 had no equivalent table and its rest_port was a QUIC peer port with
+    different semantics, so nothing is carried over. The port is pinned to the
+    one caddy/Caddyfile proxies /api/v1/* to.
+    """
+    return [
+        "# REST surface + attempt log. The port must match caddy/Caddyfile.",
+        "[dashboard]",
+        f"listen = {_emit_string(DASHBOARD_LISTEN)}",
+        f"data_dir = {_emit_string(DASHBOARD_DATA_DIR)}",
+        "",
+    ]
 
 
 def _render_config(parsed, warnings):
@@ -230,20 +285,20 @@ def _render_config(parsed, warnings):
             "mesh. Set [miner].validators to your substrate validator WS URL(s)."
         )
 
-    if "rest_port" in global_table and global_table["rest_port"] != CADDY_PROXY_REST_PORT:
+    if "rest_port" in global_table or "rest_host" in global_table:
         warnings.append(
-            f"forcing [miner].rest_port to {CADDY_PROXY_REST_PORT} (v0.2 Caddy proxies "
-            f"/api/v1/* to quip-miner:{CADDY_PROXY_REST_PORT}); your v0.1 [global]."
-            f"rest_port={global_table['rest_port']!r} was dropped because the miner no "
-            "longer terminates TLS itself — Caddy does. If you genuinely need a "
-            "different internal port, edit [miner].rest_port and caddy/Caddyfile "
-            "together."
+            f"REST surface moved to [dashboard].listen = {DASHBOARD_LISTEN}; your v0.1 "
+            f"[global].rest_port={global_table.get('rest_port')!r} / "
+            f"rest_host={global_table.get('rest_host')!r} were dropped. The miner no "
+            "longer terminates TLS itself — Caddy does, and it proxies /api/v1/* to "
+            f"quip-miner:{CADDY_PROXY_REST_PORT}. To use a different internal port, "
+            "edit [dashboard].listen and caddy/Caddyfile together."
         )
 
     # Surface unknown [global] keys so we don't silently lose operator-tuned
     # values we haven't catalogued.
     known = (set(PROMOTED_GLOBAL_KEYS)
-             | {"rest_port"}
+             | {"rest_port", "rest_host"}
              | SILENT_DROP_GLOBAL_KEYS
              | LOUD_DROP_GLOBAL_KEYS)
     for key in global_table:
@@ -254,6 +309,7 @@ def _render_config(parsed, warnings):
             )
 
     lines = _render_miner_section(harvested)
+    lines += _render_dashboard_section()
 
     for table_name, table in parsed.items():
         if table_name == "global":
@@ -275,6 +331,10 @@ def _render_config(parsed, warnings):
                 "in the environment — consider moving the secret out of config.toml."
             )
         _emit_table(table_name, table, lines)
+
+    # v0.3 needs a backend section with an explicit `binary`; the v0.1 tables
+    # are carried over verbatim above and so arrive without one.
+    _backfill_backend(lines, parsed, [], warnings)
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -526,9 +586,20 @@ def _backfill_validators(lines, bounds, miner, env_vals, notes):
     return []
 
 
-def _backfill_faucet(miner, env_vals, notes, warnings):
+def _backfill_faucet(lines, bounds, miner, env_vals, notes, warnings):
     """Handle faucet_url; returns insert lines (possibly empty)."""
+    mstart, mend = bounds
     if "faucet_url" in miner:
+        if miner["faucet_url"] in RETIRED_FAUCET_URLS:
+            pat = re.compile(r"^(\s*faucet_url\s*=\s*)(\"[^\"]*\"|'[^']*')")
+            for i in range(mstart, mend):
+                m = pat.match(lines[i])
+                if m:
+                    lines[i] = (
+                        m.group(1) + _emit_string(FAUCET_TESTNET_URL) + lines[i][m.end():]
+                    )
+                    break
+            notes.append(f"faucet_url {miner['faucet_url']} -> {FAUCET_TESTNET_URL}")
         return []
     if env_vals.get("QUIP_FAUCET_URL") == "":
         warnings.append(
@@ -542,39 +613,128 @@ def _backfill_faucet(miner, env_vals, notes, warnings):
     return [f"faucet_url = {_emit_string(url)}"]
 
 
-def _backfill_rest(lines, bounds, miner, notes, warnings):
-    """Handle rest_port / rest_host; returns insert lines (possibly empty)."""
-    mstart, mend = bounds
-    inserts = []
-    rest_port = miner.get("rest_port")
-    if rest_port in (-1, 80):
-        pat = re.compile(r"^\s*rest_port\s*=")
-        for i in range(mstart, mend):
+def _table_bounds(lines, name):
+    """Line span of a top-level [name] table, or None when it is absent."""
+    header = re.compile(rf"^\s*\[{re.escape(name)}\]\s*$")
+    any_header = re.compile(r"^\s*\[")
+    for i, line in enumerate(lines):
+        if header.match(line):
+            for j in range(i + 1, len(lines)):
+                if any_header.match(lines[j]):
+                    return i, j
+            return i, len(lines)
+    return None
+
+
+def _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings):
+    """Fold v0.2 [miner].rest_host / rest_port into the v0.3 [dashboard] table.
+
+    v0.3 removed both keys and serves the REST surface from [dashboard].listen.
+    The coordinator names them verbatim when it rejects a config, so leaving
+    them behind is not harmless. Their values are deliberately not carried
+    over: the listen port must match caddy/Caddyfile, and a v0.2 config that
+    disagreed with it was already broken.
+    """
+    removed = []
+    for key in ("rest_port", "rest_host"):
+        if key not in miner:
+            continue
+        pat = re.compile(rf"^\s*{key}\s*=")
+        for i in range(bounds[0], bounds[1]):
             if pat.match(lines[i]):
-                lines[i] = f"rest_port = {CADDY_PROXY_REST_PORT}"
+                del lines[i]
+                bounds[1] -= 1
+                removed.append(f"{key}={miner[key]!r}")
                 break
+    if removed:
         notes.append(
-            f"rest_port {rest_port} -> {CADDY_PROXY_REST_PORT} "
-            f"(Caddy proxies quip-miner:{CADDY_PROXY_REST_PORT})"
+            "removed v0.2-only " + ", ".join(removed)
+            + " (v0.3 serves REST from [dashboard].listen)"
         )
-    elif rest_port is None:
-        inserts.append(f"rest_port = {CADDY_PROXY_REST_PORT}")
-        notes.append(f"added rest_port = {CADDY_PROXY_REST_PORT}")
-    elif rest_port != CADDY_PROXY_REST_PORT:
+
+    dashboard = parsed.get("dashboard")
+    if dashboard is not None or _table_bounds(lines, "dashboard") is not None:
+        _check_dashboard_port(lines, dashboard, notes, warnings)
+        return
+    lines.append("")
+    lines.extend(_render_dashboard_section())
+    notes.append(f"added [dashboard] listen = {DASHBOARD_LISTEN}")
+
+
+def _check_dashboard_port(lines, dashboard, notes, warnings):
+    """Warn when [dashboard].listen is a port Caddy does not proxy to.
+
+    The dashboard finds its own miner by rewriting the configured front-door
+    RPC URL and probing /api/v1 on it, which caddy/Caddyfile forwards to
+    quip-miner:8086. A miner listening anywhere else is unreachable through
+    that proxy and the UI sits on "Connecting to miner". The value is reported
+    rather than rewritten: an operator who moved the port on purpose also
+    edited the Caddyfile, and this script does not read it.
+    """
+    if not isinstance(dashboard, dict):
+        return
+    listen = dashboard.get("listen")
+    if not isinstance(listen, str) or ":" not in listen:
+        return
+    host, _, port = listen.rpartition(":")
+    if port == str(CADDY_PROXY_REST_PORT):
+        return
+    if port == str(UPSTREAM_TEMPLATE_LISTEN_PORT):
+        span = _table_bounds(lines, "dashboard")
+        pattern = re.compile(r'^(\s*listen\s*=\s*)"[^"]*"')
+        if span is not None:
+            for i in range(span[0], span[1]):
+                match = pattern.match(lines[i])
+                if match:
+                    lines[i] = f'{match.group(1)}"{host}:{CADDY_PROXY_REST_PORT}"'
+                    notes.append(
+                        f"[dashboard].listen port {port} -> {CADDY_PROXY_REST_PORT} "
+                        "(seeded from a template that named a port Caddy does not "
+                        "proxy to)"
+                    )
+                    return
+    warnings.append(
+        f"[dashboard].listen={listen!r} does not use port {CADDY_PROXY_REST_PORT}, "
+        f"which caddy/Caddyfile proxies /api/v1/* to. The dashboard reaches the "
+        f"local miner only through that proxy, so it will report \"Connecting to "
+        f"miner\" until the two agree. Set the port to {CADDY_PROXY_REST_PORT}, or "
+        "change caddy/Caddyfile to match."
+    )
+
+
+def _backfill_backend(lines, parsed, notes, warnings):
+    """Make sure the config names a mining backend the v0.3 coordinator accepts.
+
+    v0.3 refuses to start without at least one of [cpu], [cuda.N], [metal], or
+    [dwave]/[qpu], and selects the variant with `binary`. A missing backend is
+    reported rather than invented: choosing what hardware an operator mines on
+    is not a decision this script should make for them.
+    """
+    roots = set(parsed) & BACKEND_TABLE_ROOTS
+    if not roots:
         warnings.append(
-            f"[miner].rest_port={rest_port} does not match the Caddy proxy "
-            f"port {CADDY_PROXY_REST_PORT}; edit caddy/Caddyfile or rest_port "
-            "so they agree."
+            "no mining backend section: the v0.3 coordinator refuses to start "
+            "without at least one of [cpu], [cuda.N], [metal], [dwave]/[qpu]. "
+            "Add one (see config/config.example.toml); this script will not "
+            "pick your hardware for you."
         )
-    if "rest_host" not in miner:
-        inserts.append('rest_host = "0.0.0.0"')
-        notes.append("added rest_host = 0.0.0.0")
-    elif miner["rest_host"] != "0.0.0.0":
+        return
+    if roots <= QPU_BACKEND_ROOTS:
         warnings.append(
-            f"[miner].rest_host={miner['rest_host']!r} may be unreachable from "
-            "Caddy inside the compose network; 0.0.0.0 is the expected value."
+            f"the only mining backend is {'/'.join(sorted(roots))}, which leaves "
+            "the coordinator no fallback. A QPU rejects every job while its "
+            "access-time budget is spent, and a rejected job with no other "
+            "capable backend is dropped, so the node mines nothing until the "
+            "budget refills. Add [cpu] (see config/config.example.toml) to "
+            "absorb the rejections."
         )
-    return inserts
+
+    cpu = parsed.get("cpu")
+    if isinstance(cpu, dict) and "binary" not in cpu:
+        span = _table_bounds(lines, "cpu")
+        if span is not None:
+            lines.insert(span[0] + 1, f"binary = {_emit_string(CPU_DEFAULT_BINARY)}")
+            notes.append(f"added [cpu].binary = {CPU_DEFAULT_BINARY}")
 
 
 def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
@@ -582,7 +742,8 @@ def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
 
     The quip-miner v0.2.1-rc images dropped every configuration env
     var, so knobs older stacks supplied via QUIP_* env (validators,
-    faucet_url, rest_port) must live in config.toml now. Edits are
+    faucet_url) must live in config.toml now, and the v0.3 keys are
+    migrated in the same pass. Edits are
     line-based to preserve operator comments. Returns True when the file
     was (or, under --dry-run, would be) modified.
     """
@@ -592,10 +753,13 @@ def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
     notes = []
 
     inserts = _backfill_validators(lines, bounds, miner, env_vals, notes)
-    inserts += _backfill_faucet(miner, env_vals, notes, warnings)
-    inserts += _backfill_rest(lines, bounds, miner, notes, warnings)
+    inserts += _backfill_faucet(lines, bounds, miner, env_vals, notes, warnings)
     if inserts:
         lines[bounds[0] + 1 : bounds[0] + 1] = inserts
+        bounds[1] += len(inserts)
+
+    _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings)
+    _backfill_backend(lines, parsed, notes, warnings)
 
     if not notes:
         return False
@@ -679,7 +843,7 @@ def main():
         if changed:
             print(f"{config_path}: backfilled config-driven keys (details above).")
         else:
-            print(f"{config_path} is already config-driven v0.2. Nothing to do.")
+            print(f"{config_path} is already on the v0.3 schema. Nothing to do.")
         sys.exit(0)
 
     warnings = []
@@ -703,9 +867,9 @@ def main():
         sys.stderr.write(f"WARN: {w}\n")
 
     print(
-        "\nReview the new config against the canonical v0.2 template at "
-        "data/config.toml in the nodes.quip.network repo for inline "
-        "documentation. Comments from your v0.1 file were not preserved."
+        "\nReview the new config against config/config.example.toml in the "
+        "nodes.quip.network repo, which documents every v0.3 key. Comments "
+        "from your v0.1 file were not preserved."
     )
 
 

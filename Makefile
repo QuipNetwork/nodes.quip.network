@@ -51,7 +51,7 @@ help:
 	@echo "  make pull              Pull images for PROFILE"
 	@echo "  make down              Tear down both profile sets"
 	@echo "  make logs              Tail validator + miner logs"
-	@echo "  make clean-chain       Wipe data/validator-data/chains"
+	@echo "  make clean-chain       Wipe data/aglais-chain-db/chains"
 	@echo "  make clean             Full reset: down + wipe chain, pgdata volume, dashboard-data"
 	@echo ""
 	@echo "Variables (override on cmdline):"
@@ -180,18 +180,18 @@ logs:
 # the rm fallback covers Linux/CI hosts without `trash` installed.
 clean-chain:
 	@if command -v trash >/dev/null 2>&1; then \
-	    trash data/validator-data/chains 2>/dev/null || true; \
+	    trash data/aglais-chain-db/chains 2>/dev/null || true; \
 	else \
-	    rm -rf data/validator-data/chains; \
+	    rm -rf data/aglais-chain-db/chains; \
 	fi
 
 # Full reset. Tears the stack down, wipes the chain, removes the postgres
-# data volume (fixes the cross-project `quip-pgdata` mismatch that breaks
+# data volume (fixes the cross-project `aglais-pgdata` mismatch that breaks
 # the dashboard migration with "password authentication failed"), and
 # clears dashboard-data so the indexer re-syncs from scratch alongside the
 # fresh DB. Destructive — do not run on a production node without a dump.
 clean: down clean-chain
-	-docker volume rm quip-pgdata quip-localdev-pgdata 2>/dev/null
+	-docker volume rm aglais-pgdata quip-localdev-pgdata 2>/dev/null
 	@if command -v trash >/dev/null 2>&1; then \
 	    trash dashboard-data 2>/dev/null || true; \
 	else \

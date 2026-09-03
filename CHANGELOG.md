@@ -1,6 +1,141 @@
 # Changelog
 
-## v0.3 (unreleased)
+## v0.3.0-rc1
+
+Aglais lands on a new minor line. v0.2.x stays on the retired testnet, so an
+operator on a stable release keeps the network they are already on and moves
+only when they choose an rc.
+
+### Aglais is the default network
+
+Aglais is the Quip test network, in the way Sepolia is the Ethereum test
+network. It started on 2026-09-02 from a fresh genesis (runtime 117, transaction
+version 7, token `AGLS`) and replaces the previous testnet. The previous
+testnet retires after operators move. This stack joins Aglais by default.
+
+- `chain-specs/aglais-network.json` replaces `chain-specs/quip-testnet.json`.
+  The `wipe-rc4` validator image exports it. Genesis is `0x59e0…c286`. The
+  bootnodes are `bootnode-{1,2,3}.aglais.quip.network`.
+- The validator base path moved from `data/validator-data` to
+  `data/aglais-chain-db`. Aglais keeps the chain id `quip_testnet`, so a shared
+  directory would hand the old database to the new spec, which rejects it on
+  genesis mismatch.
+- `QUIP_VALIDATOR_TAG` defaults to `wipe-rc4` instead of `latest`. `latest`
+  still points at the pre-Aglais image. A later rc release moves the pointer.
+- `make updateconfig` rewrites a `faucet_url` that points at the retired
+  testnet faucet to `https://faucet.aglais.quip.network`. New configs get the
+  Aglais faucet.
+- `config/quip-miner.toml` is mounted over the miner image's first-run
+  template (`/app/config.toml`) in the `cpu` and `cuda` services. The
+  upstream template in `v0.3.1-rc3-aglais-prerelease` still names the retired
+  faucet, so a fresh install seeded from the image would fund against the
+  wrong chain.
+- `config/config.example.toml` is new. It documents every key of the v0.3
+  schema: the default for each one and the reason it exists. Nothing mounts
+  it. Use it as a reference when editing `data/config.toml`.
+- `config/quip-miner.toml` sets `[dashboard].listen` to `0.0.0.0:8086`.
+  Upstream's template says `20100`, but `caddy/Caddyfile` proxies `/api/v1/*`
+  to `quip-miner:8086`. Because this file seeds `data/config.toml` on first
+  run, upstream's port would have left a fresh install with a REST surface
+  Caddy cannot reach. Existing operators are unaffected: their
+  `data/config.toml` already exists and is never overwritten.
+
+### Difficulty re-baselined for the first proof
+
+The active topology's difficulty was copied from the retired testnet, where it
+was the product of a curve that had ramped over thousands of wins. Transplanted
+onto a chain with no proof history there was nothing to ramp from, and no proof
+had ever landed. The QPU reached a stash of -14,472 against a target of -14,564
+and could not cross it.
+
+- `max_energy_milli` moved from `-14563316` to `-14000000`. `min_solutions` and
+  `min_diversity_milli` are unchanged at 1 and 0.
+- `make updateconfig` repairs a `[dashboard].listen` still on port 20100 and
+  reports any other port that is not the one `caddy/Caddyfile` proxies
+  `/api/v1/*` to. The dashboard reaches the local miner only through that
+  proxy, so a mismatch leaves the UI on "Connecting to miner" while the
+  message blames the chain instead. 20100 is repaired because it came from the
+  template this repo shipped rather than from the operator. Any other port is
+  reported and left alone, since an operator who moved it also edited the
+  Caddyfile. The host part is preserved either way.
+
+### Aglais tracks the live Advantage2_system1 working graph
+
+The registered topology drifted from the hardware. D-Wave calibrated coupler
+(938, 2812) out, so the chain described a graph with 41,515 edges while the QPU
+had 41,514. Every drifted edge is a defect the miner routes around.
+
+- `DefaultTopology` moved from `0xe66d3dfa…3693a02d` to
+  `0xcbec1eb4…0c3270e7`, dumped from the live solver. Node set is unchanged at
+  4,577.
+- Difficulty for the new topology is baselined at the values the chain already
+  ran: `min_solutions=1`, `max_energy_milli=-14563316`, `min_diversity_milli=0`.
+  It was set before the repoint, so the active default was never without a
+  difficulty entry.
+- The previous topology stays registered and mineable. Only the default moved.
+- `config/advantage2-system1-h0.spec.json` is the dumped live graph and matches
+  what the chain now runs.
+
+### D-Wave solver and token now reach the miner
+
+- `docker-compose.yml` passes `DWAVE_API_TOKEN`, `DWAVE_API_SOLVER`, and
+  `DWAVE_API_REGION` to the `cpu` and `cuda` services. It previously passed
+  only `DWAVE_API_KEY`, a name nothing reads: the miner checks
+  `DWAVE_API_TOKEN` (`ocean.py`, `cli.py`) and otherwise lets the Ocean SDK
+  resolve its own canonical variables. A QPU node therefore had no way to
+  select a solver through this stack, and the SDK fell back to the account
+  default, which may not be the Advantage2 system the chain topology targets.
+- `DWAVE_API_KEY` still works. Compose maps it into `DWAVE_API_TOKEN` when the
+  canonical name is unset, so an existing `.env` needs no edit. An empty value
+  resolves the same as an unset one, verified against `dwave.cloud.config`.
+- Credentials remain unavailable in `config.toml`. The `[dwave]` table accepts
+  budget and anneal keys only, which the miner enforces.
+
+### `make updateconfig` migrates v0.2 to v0.3
+
+- `[miner].rest_host` and `[miner].rest_port` are removed and the REST surface
+  moves to `[dashboard].listen`. The v0.3 coordinator names both keys when it
+  rejects a config, so leaving them in place is not harmless. The old values
+  are not carried over, because the port must match `caddy/Caddyfile`.
+- A `[cpu]` table with no `binary` gets `quip-cpu-sa`, the bundled default.
+  v0.3 selects the miner variant with this key.
+- A config whose only backend is a QPU (`[dwave]`/`[qpu]`) is reported. Such a
+  node drops every job while the QPU access-time budget is spent, because the
+  coordinator has no other capable backend to re-route to, so it mines nothing
+  between refills. Adding `[cpu]` absorbs the rejections.
+- A config that names no mining backend is reported, not repaired. v0.3
+  refuses to start without one of `[cpu]`, `[cuda.N]`, `[metal]`,
+  `[dwave]`/`[qpu]`, and choosing an operator's mining hardware is not the
+  converter's decision.
+- The `validators` default is now
+  `["ws://quip-validator:9944", "ws://127.0.0.1:9944"]`. The converter
+  previously wrote only the first entry, which silently removed the loopback
+  fallback that an untouched config gets from the coordinator itself.
+- The documented export procedure passes `--entrypoint
+  /usr/local/bin/quip-network-node`. The image entrypoint prints a line to
+  stdout before the JSON, which corrupts a plain redirect.
+- `data/chain-spec.json` (the `quip-local` preset) is removed. It carried the
+  pre-Aglais runtime, and the current image no longer has that preset. Local
+  development uses `make localdev`, which runs the image's `--chain=dev`.
+  `QUIP_CHAIN_SPEC` remains for private networks.
+- The bootnode runbook inserts session keys with `insert-hybrid-key` and the
+  `hybrid-babe-h444` / `hybrid-grandpa-h244` schemes. The stock `key insert`
+  schemes produce keys the runtime 117 genesis does not accept.
+- The dashboard Postgres volume is `aglais-pgdata`, renamed from
+  `quip-pgdata`. The indexer scans from genesis and keys nothing by chain, so
+  reusing the retired network's volume leaves its blocks and miners in the
+  tables beside Aglais data. The rename gives a clean index on upgrade and
+  deletes nothing: the old volume stays until the operator removes it.
+- `config/advantage2-system1-h0.spec.json` holds the topology the network
+  mines against, `0xe66d...a02d`. It is the Advantage2 system1 graph with
+  `allowed_h = [0]`, the h0 variant the previous testnet registered. The
+  built-in `advantage2-system1` preset differs, carrying
+  `allowed_h = [-1000, 0, 1000]`, so `seed-chain` run with its defaults
+  registers a different topology. README documents the seeding command.
+
+**Operator impact**: `git pull`, `make updateconfig`, drop the dashboard state,
+`docker compose --profile cpu up -d`. See "Upgrading to Aglais" in the README.
+The old database stays at `data/validator-data` until you delete it.
 
 ### The miner, dashboard, and faucet wait for a synced validator
 
@@ -116,7 +251,10 @@ Each image ships its own `/app/config.toml` and seeds `data/config.toml` from it
 
 `config/localdev.{cpu,cuda}.toml` replace `[miner].rest_host` and `rest_port` with a `[dashboard]` section on the same port 8086, and add the `public_host` and `public_port` keys the coordinator requires.
 
-## v0.2 (unreleased)
+## v0.2.1
+
+The last release on the retired testnet. Operators who stay on v0.2.x keep
+that network. Aglais starts at v0.3.0-rc1.
 
 ### CPU miner `shm_size` raised to avoid SIGBUS
 
