@@ -25,7 +25,7 @@ error that aborts the whole file.
 
 New file `channels.yml` holds the tables and is the only file in the repo
 allowed to contain a tag literal. Seven tag claims across README, env.example
-and docs had already gone stale before it existed; all are corrected here, and
+and docs had already gone stale before it existed. All are corrected here, and
 `make show-channel` now answers "what will I actually pull" in one command.
 
 ### Fixes found while doing the above
@@ -48,7 +48,7 @@ and docs had already gone stale before it existed; all are corrected here, and
   `-aglais-prerelease` suffix.
 - `QUIP_VALIDATOR_TAG` moves from `wipe-rc4` to `v0.3.0-rc1`, quip-validator's
   own tag for the identical commit. Same image, real semver name.
-- `env.example` updated to match both defaults; it previously still
+- `env.example` updated to match both defaults. It previously still
   documented `latest` as this branch's effective default.
 
 ## v0.3.0-rc1
