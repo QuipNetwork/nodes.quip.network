@@ -619,7 +619,7 @@ def _table_bounds(lines, name):
     return None
 
 
-def _migrate_rest_to_dashboard(lines, bounds, miner, notes):
+def _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings):
     """Fold v0.2 [miner].rest_host / rest_port into the v0.3 [dashboard] table.
 
     v0.3 removed both keys and serves the REST surface from [dashboard].listen.
@@ -645,11 +645,40 @@ def _migrate_rest_to_dashboard(lines, bounds, miner, notes):
             + " (v0.3 serves REST from [dashboard].listen)"
         )
 
-    if _table_bounds(lines, "dashboard") is not None:
+    dashboard = parsed.get("dashboard")
+    if dashboard is not None or _table_bounds(lines, "dashboard") is not None:
+        _check_dashboard_port(dashboard, warnings)
         return
     lines.append("")
     lines.extend(_render_dashboard_section())
     notes.append(f"added [dashboard] listen = {DASHBOARD_LISTEN}")
+
+
+def _check_dashboard_port(dashboard, warnings):
+    """Warn when [dashboard].listen is a port Caddy does not proxy to.
+
+    The dashboard finds its own miner by rewriting the configured front-door
+    RPC URL and probing /api/v1 on it, which caddy/Caddyfile forwards to
+    quip-miner:8086. A miner listening anywhere else is unreachable through
+    that proxy and the UI sits on "Connecting to miner". The value is reported
+    rather than rewritten: an operator who moved the port on purpose also
+    edited the Caddyfile, and this script does not read it.
+    """
+    if not isinstance(dashboard, dict):
+        return
+    listen = dashboard.get("listen")
+    if not isinstance(listen, str) or ":" not in listen:
+        return
+    port = listen.rsplit(":", 1)[-1]
+    if port == str(CADDY_PROXY_REST_PORT):
+        return
+    warnings.append(
+        f"[dashboard].listen={listen!r} does not use port {CADDY_PROXY_REST_PORT}, "
+        f"which caddy/Caddyfile proxies /api/v1/* to. The dashboard reaches the "
+        f"local miner only through that proxy, so it will report \"Connecting to "
+        f"miner\" until the two agree. Set the port to {CADDY_PROXY_REST_PORT}, or "
+        "change caddy/Caddyfile to match."
+    )
 
 
 def _backfill_backend(lines, parsed, notes, warnings):
@@ -708,7 +737,7 @@ def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
         lines[bounds[0] + 1 : bounds[0] + 1] = inserts
         bounds[1] += len(inserts)
 
-    _migrate_rest_to_dashboard(lines, bounds, miner, notes)
+    _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings)
     _backfill_backend(lines, parsed, notes, warnings)
 
     if not notes:

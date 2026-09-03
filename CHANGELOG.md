@@ -36,6 +36,23 @@ testnet retires after operators move. This stack joins Aglais by default.
   Caddy cannot reach. Existing operators are unaffected: their
   `data/config.toml` already exists and is never overwritten.
 
+### Difficulty re-baselined for the first proof
+
+The active topology's difficulty was copied from the retired testnet, where it
+was the product of a curve that had ramped over thousands of wins. Transplanted
+onto a chain with no proof history there was nothing to ramp from, and no proof
+had ever landed. The QPU reached a stash of -14,472 against a target of -14,564
+and could not cross it.
+
+- `max_energy_milli` moved from `-14563316` to `-14000000`. `min_solutions` and
+  `min_diversity_milli` are unchanged at 1 and 0.
+- `make updateconfig` now reports a `[dashboard].listen` whose port is not the
+  one `caddy/Caddyfile` proxies `/api/v1/*` to. The dashboard reaches the local
+  miner only through that proxy, so a mismatch leaves the UI on "Connecting to
+  miner" with a message that blames the chain instead. The value is reported,
+  not rewritten, because an operator who moved the port on purpose also edited
+  the Caddyfile.
+
 ### Aglais tracks the live Advantage2_system1 working graph
 
 The registered topology drifted from the hardware. D-Wave calibrated coupler

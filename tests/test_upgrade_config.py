@@ -549,3 +549,30 @@ def test_qpu_with_cpu_fallback_does_not_warn(tmp_path):
     result = _run(data_dir)
 
     assert "the only mining backend" not in result.stderr
+
+
+def test_dashboard_port_mismatch_is_reported(tmp_path):
+    """The dashboard reaches the local miner only through Caddy's /api/v1
+    proxy, which targets port 8086. A miner listening elsewhere is invisible to
+    it, and the UI sits on "Connecting to miner"."""
+    data_dir = _v02_with(
+        tmp_path, '\n[dashboard]\nlisten = "0.0.0.0:20100"\ndata_dir = "/data/attempts"\n'
+    )
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "does not use port 8086" in result.stderr
+    # Reported, not rewritten: the operator may have moved the Caddyfile too.
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["dashboard"]["listen"] == "0.0.0.0:20100"
+
+
+def test_dashboard_port_match_is_quiet(tmp_path):
+    data_dir = _v02_with(
+        tmp_path, '\n[dashboard]\nlisten = "0.0.0.0:8086"\ndata_dir = "/data/attempts"\n'
+    )
+
+    result = _run(data_dir)
+
+    assert "does not use port" not in result.stderr
