@@ -114,7 +114,17 @@ services:
       # The one config-adjacent secret still delivered by env — read by the
       # QPU layer only, with the Ocean SDK's ~/.config/dwave/dwave.conf as
       # the file-based fallback.
+      #
+      # Both names go through. DWAVE_API_TOKEN is what the Ocean SDK reads;
+      # DWAVE_API_KEY is the v0.2 name, which the miner still accepts with a
+      # deprecation warning. Set either one in .env.
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
+      DWAVE_API_TOKEN: ${DWAVE_API_TOKEN:-}
+      # Optional: pin the QPU and the region. Unset means the SDK picks the
+      # first available QPU solver in its default region. An empty value is
+      # ignored by Ocean's config loader, so these are inert until set.
+      DWAVE_API_SOLVER: ${DWAVE_API_SOLVER:-}
+      DWAVE_API_REGION: ${DWAVE_API_REGION:-}
     volumes:
       - ./data:/data
     networks:
@@ -154,7 +164,17 @@ services:
       # The one config-adjacent secret still delivered by env — read by the
       # QPU layer only, with the Ocean SDK's ~/.config/dwave/dwave.conf as
       # the file-based fallback.
+      #
+      # Both names go through. DWAVE_API_TOKEN is what the Ocean SDK reads;
+      # DWAVE_API_KEY is the v0.2 name, which the miner still accepts with a
+      # deprecation warning. Set either one in .env.
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
+      DWAVE_API_TOKEN: ${DWAVE_API_TOKEN:-}
+      # Optional: pin the QPU and the region. Unset means the SDK picks the
+      # first available QPU solver in its default region. An empty value is
+      # ignored by Ocean's config loader, so these are inert until set.
+      DWAVE_API_SOLVER: ${DWAVE_API_SOLVER:-}
+      DWAVE_API_REGION: ${DWAVE_API_REGION:-}
       # When a host MPS daemon is up, cap this client's GPU SMs at the operator's
       # configured utilization (the manager writes QUIP_GPU_UTILIZATION to .env).
       # NVIDIA runtime vars — no config-file equivalent exists for these.
