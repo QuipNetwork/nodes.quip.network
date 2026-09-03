@@ -26,7 +26,9 @@ x-logging: &default-logging
 # Shared dashboard configuration. The dashboard is always present alongside
 # every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
 x-dashboard: &dashboard
-  image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-latest}
+  extends:
+    file: channels.yml
+    service: "${CHANNEL:-BETA}-dashboard"
   pull_policy: always
   container_name: quip-dashboard
   restart: unless-stopped
@@ -74,7 +76,9 @@ services:
   # first run. There are no QUIP_* config env vars. The environment block
   # carries only host concerns (PUID/PGID) plus the D-Wave credential.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-v0.3.1-rc7}
+    extends:
+      file: channels.yml
+      service: "${CHANNEL:-BETA}-miner-cpu"
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -148,7 +152,9 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-v0.3.1-rc7}
+    extends:
+      file: channels.yml
+      service: "${CHANNEL:-BETA}-miner-cuda"
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
@@ -225,7 +231,9 @@ services:
     # Pinned to the Aglais relaunch build. `latest` still points at the
     # pre-Aglais image, which cannot run the runtime 117 genesis. Move this
     # back to `latest` once a stable (non-rc) release moves the pointer.
-    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.3.0-rc1}
+    extends:
+      file: channels.yml
+      service: "${CHANNEL:-BETA}-validator"
     pull_policy: always
     container_name: quip-validator
     restart: unless-stopped
@@ -300,7 +308,9 @@ services:
   #   docker compose --profile cpu --profile faucet up -d
   # See https://gitlab.com/quip.network/faucet for the upstream image.
   quip-faucet:
-    image: registry.gitlab.com/quip.network/faucet:${QUIP_FAUCET_TAG:-latest}
+    extends:
+      file: channels.yml
+      service: "${CHANNEL:-BETA}-faucet"
     pull_policy: always
     container_name: quip-faucet
     restart: unless-stopped
