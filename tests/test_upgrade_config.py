@@ -551,10 +551,11 @@ def test_qpu_with_cpu_fallback_does_not_warn(tmp_path):
     assert "the only mining backend" not in result.stderr
 
 
-def test_dashboard_port_mismatch_is_reported(tmp_path):
-    """The dashboard reaches the local miner only through Caddy's /api/v1
-    proxy, which targets port 8086. A miner listening elsewhere is invisible to
-    it, and the UI sits on "Connecting to miner"."""
+def test_seeded_upstream_dashboard_port_is_repaired(tmp_path):
+    """Port 20100 came from the shipped template, not from the operator. The
+    dashboard reaches the local miner only through Caddy's /api/v1 proxy, which
+    targets 8086, so a node seeded in that window sits on "Connecting to
+    miner". Repair it rather than only reporting a defect this repo shipped."""
     data_dir = _v02_with(
         tmp_path, '\n[dashboard]\nlisten = "0.0.0.0:20100"\ndata_dir = "/data/attempts"\n'
     )
@@ -562,10 +563,35 @@ def test_dashboard_port_mismatch_is_reported(tmp_path):
     result = _run(data_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "does not use port 8086" in result.stderr
-    # Reported, not rewritten: the operator may have moved the Caddyfile too.
     parsed = tomllib.loads((data_dir / "config.toml").read_text())
-    assert parsed["dashboard"]["listen"] == "0.0.0.0:20100"
+    assert parsed["dashboard"]["listen"] == "0.0.0.0:8086"
+    assert parsed["dashboard"]["data_dir"] == "/data/attempts"
+    assert "20100 -> 8086" in result.stderr
+
+
+def test_host_is_preserved_when_repairing_the_port(tmp_path):
+    data_dir = _v02_with(
+        tmp_path, '\n[dashboard]\nlisten = "127.0.0.1:20100"\ndata_dir = "/data/attempts"\n'
+    )
+
+    _run(data_dir)
+
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["dashboard"]["listen"] == "127.0.0.1:8086"
+
+
+def test_other_port_mismatch_is_reported_not_rewritten(tmp_path):
+    """Any other port is an operator choice, and they would have edited
+    caddy/Caddyfile to match. Report it and leave it alone."""
+    data_dir = _v02_with(
+        tmp_path, '\n[dashboard]\nlisten = "0.0.0.0:9000"\ndata_dir = "/data/attempts"\n'
+    )
+
+    result = _run(data_dir)
+
+    assert "does not use port 8086" in result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["dashboard"]["listen"] == "0.0.0.0:9000"
 
 
 def test_dashboard_port_match_is_quiet(tmp_path):

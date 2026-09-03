@@ -98,6 +98,13 @@ DEFAULT_VALIDATORS = ("ws://quip-validator:9944", "ws://127.0.0.1:9944")
 # coordinator names the old keys verbatim when it rejects a v0.2 config, so we
 # fold them into [dashboard].listen rather than leaving them in place.
 DASHBOARD_LISTEN = f"0.0.0.0:{CADDY_PROXY_REST_PORT}"
+
+# The port upstream's own template binds. config/quip-miner.toml carried it
+# verbatim in the first Aglais commit, and that file seeds data/config.toml on
+# first run, so nodes installed in that window bind a port caddy/Caddyfile does
+# not proxy to. That value is this repo's defect rather than an operator
+# choice, so it is repaired instead of merely reported.
+UPSTREAM_TEMPLATE_LISTEN_PORT = 20100
 DASHBOARD_DATA_DIR = "/data/attempts"
 
 # v0.3 requires at least one mining backend section and picks the variant with
@@ -647,14 +654,14 @@ def _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings):
 
     dashboard = parsed.get("dashboard")
     if dashboard is not None or _table_bounds(lines, "dashboard") is not None:
-        _check_dashboard_port(dashboard, warnings)
+        _check_dashboard_port(lines, dashboard, notes, warnings)
         return
     lines.append("")
     lines.extend(_render_dashboard_section())
     notes.append(f"added [dashboard] listen = {DASHBOARD_LISTEN}")
 
 
-def _check_dashboard_port(dashboard, warnings):
+def _check_dashboard_port(lines, dashboard, notes, warnings):
     """Warn when [dashboard].listen is a port Caddy does not proxy to.
 
     The dashboard finds its own miner by rewriting the configured front-door
@@ -669,9 +676,23 @@ def _check_dashboard_port(dashboard, warnings):
     listen = dashboard.get("listen")
     if not isinstance(listen, str) or ":" not in listen:
         return
-    port = listen.rsplit(":", 1)[-1]
+    host, _, port = listen.rpartition(":")
     if port == str(CADDY_PROXY_REST_PORT):
         return
+    if port == str(UPSTREAM_TEMPLATE_LISTEN_PORT):
+        span = _table_bounds(lines, "dashboard")
+        pattern = re.compile(r'^(\s*listen\s*=\s*)"[^"]*"')
+        if span is not None:
+            for i in range(span[0], span[1]):
+                match = pattern.match(lines[i])
+                if match:
+                    lines[i] = f'{match.group(1)}"{host}:{CADDY_PROXY_REST_PORT}"'
+                    notes.append(
+                        f"[dashboard].listen port {port} -> {CADDY_PROXY_REST_PORT} "
+                        "(seeded from a template that named a port Caddy does not "
+                        "proxy to)"
+                    )
+                    return
     warnings.append(
         f"[dashboard].listen={listen!r} does not use port {CADDY_PROXY_REST_PORT}, "
         f"which caddy/Caddyfile proxies /api/v1/* to. The dashboard reaches the "

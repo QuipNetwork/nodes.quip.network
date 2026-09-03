@@ -46,12 +46,14 @@ and could not cross it.
 
 - `max_energy_milli` moved from `-14563316` to `-14000000`. `min_solutions` and
   `min_diversity_milli` are unchanged at 1 and 0.
-- `make updateconfig` now reports a `[dashboard].listen` whose port is not the
-  one `caddy/Caddyfile` proxies `/api/v1/*` to. The dashboard reaches the local
-  miner only through that proxy, so a mismatch leaves the UI on "Connecting to
-  miner" with a message that blames the chain instead. The value is reported,
-  not rewritten, because an operator who moved the port on purpose also edited
-  the Caddyfile.
+- `make updateconfig` repairs a `[dashboard].listen` still on port 20100 and
+  reports any other port that is not the one `caddy/Caddyfile` proxies
+  `/api/v1/*` to. The dashboard reaches the local miner only through that
+  proxy, so a mismatch leaves the UI on "Connecting to miner" while the
+  message blames the chain instead. 20100 is repaired because it came from the
+  template this repo shipped rather than from the operator. Any other port is
+  reported and left alone, since an operator who moved it also edited the
+  Caddyfile. The host part is preserved either way.
 
 ### Aglais tracks the live Advantage2_system1 working graph
 
