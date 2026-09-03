@@ -376,8 +376,13 @@ services:
       - dashboard
 
 volumes:
+  # Renamed from quip-pgdata at the Aglais relaunch. The dashboard indexer
+  # scans from genesis and keys nothing by chain, so reusing the retired
+  # network's volume leaves its blocks and miners in the tables next to
+  # Aglais data. A new name gives every operator a clean index on upgrade
+  # and leaves the old volume on disk to delete when they are ready.
   pgdata:
-    name: quip-pgdata
+    name: aglais-pgdata
   caddy-data:
     name: quip-caddy-data
   caddy-config:

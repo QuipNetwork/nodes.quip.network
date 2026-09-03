@@ -44,6 +44,7 @@ What changed on the host:
 - The validator base path moved from `data/validator-data` to `data/aglais-chain-db`. Aglais keeps the chain id `quip_testnet`, so the new spec would open the old database and reject it on genesis mismatch. A fresh directory keeps the two apart.
 - The validator image is pinned to the Aglais build: `QUIP_VALIDATOR_TAG` defaults to `wipe-rc4`. `latest` still points at the pre-Aglais image, which cannot run this chain.
 - The faucet is `https://faucet.aglais.quip.network`. The miner funds and registers itself again on the new chain, so `faucet_url` in `data/config.toml` must point at the Aglais faucet. Fresh installs get it from `config/quip-miner.toml`, which compose mounts over the miner image's first-run template.
+- The dashboard Postgres volume is `aglais-pgdata`, renamed from `quip-pgdata`. The indexer scans from genesis and keys nothing by chain, so the retired network's blocks and miners would otherwise sit in the tables beside Aglais data. The new name gives a clean index without deleting anything.
 
 Steps:
 
@@ -51,14 +52,19 @@ Steps:
 git pull
 make updateconfig                    # rewrites faucet_url to the Aglais faucet
 docker compose --profile cpu down    # or cuda
-docker volume rm quip-pgdata         # dashboard index holds old-chain state
-trash dashboard-data                 # or: rm -rf dashboard-data
 docker compose --profile cpu up -d   # or: make testnet PROFILE=cpu
 ```
 
-`up -d` creates `data/aglais-chain-db` and syncs Aglais from genesis. The first start waits for that sync, see [Initial sync](#initial-sync). The dashboard indexer scans from genesis and caches what it finds, so drop its Postgres volume and `dashboard-data` with the chain. Old-chain rows can otherwise stay in the dashboard.
+`up -d` creates `data/aglais-chain-db` and syncs Aglais from genesis. The first start waits for that sync, see [Initial sync](#initial-sync).
 
-The miner keystore at `data/keystore.json` still loads, but the miner image on `latest` (`v0.3.1-rc3-aglais-prerelease`) signs with the H4 suite and derives a different on-chain account from the same seed. The miner funds and registers that new account itself on first start against Aglais, through `faucet_url`. The old database stays at `data/validator-data`. Delete it when you no longer need to go back.
+The miner keystore at `data/keystore.json` still loads, but the miner image on `latest` (`v0.3.1-rc3-aglais-prerelease`) signs with the H4 suite and derives a different on-chain account from the same seed. The miner funds and registers that new account itself on first start against Aglais, through `faucet_url`. The `ss58` field inside `keystore.json` is stale metadata from the H3 era and is no longer the account the miner uses. Read the live account from the dashboard or from `QuantumPow.Miners`, not from the file.
+
+Nothing from the retired network is deleted for you. The old chain database stays at `data/validator-data` and the old dashboard index stays in the `quip-pgdata` volume. Delete both when you no longer need to go back:
+
+```bash
+trash data/validator-data          # or: rm -rf data/validator-data
+docker volume rm quip-pgdata
+```
 
 If `.env` pins `QUIP_VALIDATOR_TAG` to a pre-Aglais tag, delete the line. A pin holds the stack on an image that cannot run this chain.
 
@@ -79,7 +85,7 @@ docker stop quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 
 docker rm   quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 2>/dev/null || true
 ```
 
-Your data is in bind mounts (`./data/`, `./dashboard-data/`) and named volumes (`quip-pgdata`, `quip-caddy-data`, `quip-caddy-config`), so removing containers is non-destructive.
+Your data is in bind mounts (`./data/`, `./dashboard-data/`) and named volumes (`aglais-pgdata`, `quip-caddy-data`, `quip-caddy-config`), so removing containers is non-destructive.
 
 ### 2. Pull the v0.2 repo
 
@@ -344,7 +350,7 @@ For miner-only nodes (no colocated validator), point the indexer at a public ful
 QUIP_VALIDATOR_RPC_URLS=wss://cpu-1.nodes.quip.network/rpc
 ```
 
-Telemetry persists in the `quip-pgdata` named volume, so it survives container recreations.
+Telemetry persists in the `aglais-pgdata` named volume, so it survives container recreations.
 
 ### Validator setup
 
@@ -443,6 +449,29 @@ Do not hand-edit `chain-specs/aglais-network.json`. Any change must come from re
 
 Genesis authorities, sudo, and the full set-keys procedure live in [`quip-validator/docs/genesis-quip-testnet.md`](https://gitlab.com/quip.network/quip-validator/-/blob/main/docs/genesis-quip-testnet.md). Operator key handling is documented in [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/main/docs/testnet-keys.md).
 
+#### Seeding the mining topology
+
+A chain accepts no proof until root registers a topology and marks it mineable. The sudo holder does this once per chain. Operators never run it. Aglais uses the same topology the previous testnet ran, `0xe66d3dfa3c9c6afb15efe29891cf9412498d94692ab5956af3ad98ba3693a02d`: the D-Wave Advantage2 system1 graph, 4577 nodes and 41515 edges, with `allowed_h = [0]`.
+
+That `allowed_h = [0]` is what makes it the h0 topology, and it is why `seed-chain` cannot be run with its defaults here. The built-in `advantage2-system1` preset carries `allowed_h = [-1000, 0, 1000]` and hashes to `0xfb91…7ec4`, a different topology. The matching spec is committed at `config/advantage2-system1-h0.spec.json`.
+
+```bash
+docker compose --profile cpu run --rm \
+  -v "$PWD/config/advantage2-system1-h0.spec.json:/topology.json:ro" \
+  -v /path/to/sudo-mnemonic:/sudo-mnemonic:ro \
+  --entrypoint quip-coordinator cpu seed-chain \
+    --validator ws://quip-validator:9944 \
+    --mnemonic-file /sudo-mnemonic \
+    --topology /topology.json \
+    --min-solutions 1 \
+    --max-energy-milli=-14563316 \
+    --min-diversity-milli 0
+```
+
+`--max-energy-milli` takes the `=` form because a bare negative value parses as a flag. The three difficulty values are the ones the previous testnet ran, read from its `Difficulties` entry. They are not the `seed-chain` defaults, which are 5, -2500000 and 200. The chain's difficulty controller moves the live threshold from there based on submission rate.
+
+Verify afterwards that `QuantumPow.DefaultTopology` reads back `0xe66d…a02d`. A miner against an unseeded chain logs `feeder: chain has no mining snapshot (no registered/mineable topology); staging nothing` and stages no work.
+
 #### Local development and private networks
 
 For a self-contained dev chain, use `make localdev`. It runs the validator on the image's built-in `--chain=dev` preset, so it always matches the pinned image (see [Local dev chain](#local-dev-chain)).
@@ -533,8 +562,9 @@ docker compose --profile cpu up -d --force-recreate
 | `.env` | Compose interpolation source: QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_KEY, tags + knobs (not checked in) |
 | `env.example` | Template for `.env` |
 | `config/quip-miner.toml` | Miner first-run config template (Aglais faucet_url), mounted over the image's `/app/config.toml` |
+| `config/advantage2-system1-h0.spec.json` | Topology spec the network mines against (`0xe66d…a02d`). Input to `seed-chain`, not read at runtime |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs; `make localdev` copies the profile's variant to `data/config.toml` |
 | `dashboard-data/` | Dashboard auxiliary state (bind mount, gitignored) |
-| `quip-pgdata` | Docker named volume for Postgres data |
+| `aglais-pgdata` | Docker named volume for Postgres data (was `quip-pgdata` before Aglais) |
 | `quip-caddy-data` | Docker named volume for Caddy's certs + state |
 | `quip-caddy-config` | Docker named volume for Caddy's autosaved config |

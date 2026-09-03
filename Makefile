@@ -186,12 +186,12 @@ clean-chain:
 	fi
 
 # Full reset. Tears the stack down, wipes the chain, removes the postgres
-# data volume (fixes the cross-project `quip-pgdata` mismatch that breaks
+# data volume (fixes the cross-project `aglais-pgdata` mismatch that breaks
 # the dashboard migration with "password authentication failed"), and
 # clears dashboard-data so the indexer re-syncs from scratch alongside the
 # fresh DB. Destructive — do not run on a production node without a dump.
 clean: down clean-chain
-	-docker volume rm quip-pgdata quip-localdev-pgdata 2>/dev/null
+	-docker volume rm aglais-pgdata quip-localdev-pgdata 2>/dev/null
 	@if command -v trash >/dev/null 2>&1; then \
 	    trash dashboard-data 2>/dev/null || true; \
 	else \

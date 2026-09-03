@@ -36,6 +36,17 @@ testnet retires after operators move. This stack joins Aglais by default.
 - The bootnode runbook inserts session keys with `insert-hybrid-key` and the
   `hybrid-babe-h444` / `hybrid-grandpa-h244` schemes. The stock `key insert`
   schemes produce keys the runtime 117 genesis does not accept.
+- The dashboard Postgres volume is `aglais-pgdata`, renamed from
+  `quip-pgdata`. The indexer scans from genesis and keys nothing by chain, so
+  reusing the retired network's volume leaves its blocks and miners in the
+  tables beside Aglais data. The rename gives a clean index on upgrade and
+  deletes nothing: the old volume stays until the operator removes it.
+- `config/advantage2-system1-h0.spec.json` holds the topology the network
+  mines against, `0xe66d...a02d`. It is the Advantage2 system1 graph with
+  `allowed_h = [0]`, the h0 variant the previous testnet registered. The
+  built-in `advantage2-system1` preset differs, carrying
+  `allowed_h = [-1000, 0, 1000]`, so `seed-chain` run with its defaults
+  registers a different topology. README documents the seeding command.
 
 **Operator impact**: `git pull`, `make updateconfig`, drop the dashboard state,
 `docker compose --profile cpu up -d`. See "Upgrading to Aglais" in the README.

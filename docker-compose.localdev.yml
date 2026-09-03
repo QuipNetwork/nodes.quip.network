@@ -102,7 +102,7 @@ services:
 # Re-declare the base file's named volumes with a localdev prefix. Services
 # reference them by their compose key (pgdata / caddy-data / caddy-config),
 # which is unchanged — only the global `name` is overridden, so the dev stack
-# gets its own volumes instead of sharing testnet's quip-pgdata etc.
+# gets its own volumes instead of sharing the Aglais stack's aglais-pgdata etc.
 volumes:
   pgdata:
     name: quip-localdev-pgdata

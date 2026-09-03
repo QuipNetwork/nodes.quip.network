@@ -119,7 +119,7 @@ make testnet     →  (PROFILE=cuda: start host MPS daemon) docker compose --pro
 make localdev    →  docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d   (dev chain, own namespace)
 make updateconfig → python3 scripts/upgrade-config.py data                          (v0.1 → v0.2)
 make down        →  tear down BOTH projects (testnet default + quip-localdev)
-make clean       →  down + wipe chain + drop pgdata + quip-localdev-pgdata volumes + wipe dashboard-data   (destructive)
+make clean       →  down + wipe chain + drop aglais-pgdata + quip-localdev-pgdata volumes + wipe dashboard-data   (destructive)
 ```
 
 The flow on a clean `make testnet` boot:
