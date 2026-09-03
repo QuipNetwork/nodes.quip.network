@@ -120,6 +120,11 @@ services:
       # deprecation warning. Set either one in .env.
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
       DWAVE_API_TOKEN: ${DWAVE_API_TOKEN:-}
+      # Optional: pin the QPU and the region. Unset means the SDK picks the
+      # first available QPU solver in its default region. An empty value is
+      # ignored by Ocean's config loader, so these are inert until set.
+      DWAVE_API_SOLVER: ${DWAVE_API_SOLVER:-}
+      DWAVE_API_REGION: ${DWAVE_API_REGION:-}
     volumes:
       - ./data:/data
     networks:
@@ -165,6 +170,11 @@ services:
       # deprecation warning. Set either one in .env.
       DWAVE_API_KEY: ${DWAVE_API_KEY:-}
       DWAVE_API_TOKEN: ${DWAVE_API_TOKEN:-}
+      # Optional: pin the QPU and the region. Unset means the SDK picks the
+      # first available QPU solver in its default region. An empty value is
+      # ignored by Ocean's config loader, so these are inert until set.
+      DWAVE_API_SOLVER: ${DWAVE_API_SOLVER:-}
+      DWAVE_API_REGION: ${DWAVE_API_REGION:-}
       # When a host MPS daemon is up, cap this client's GPU SMs at the operator's
       # configured utilization (the manager writes QUIP_GPU_UTILIZATION to .env).
       # NVIDIA runtime vars — no config-file equivalent exists for these.
