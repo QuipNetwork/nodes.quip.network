@@ -74,7 +74,7 @@ services:
   # first run. There are no QUIP_* config env vars. The environment block
   # carries only host concerns (PUID/PGID) plus the D-Wave credential.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-latest}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-v0.3.1-rc7}
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -148,7 +148,7 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-latest}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-v0.3.1-rc7}
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
@@ -224,8 +224,8 @@ services:
   quip-validator:
     # Pinned to the Aglais relaunch build. `latest` still points at the
     # pre-Aglais image, which cannot run the runtime 117 genesis. Move this
-    # back to `latest` once a release moves the pointer.
-    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-wipe-rc4}
+    # back to `latest` once a stable (non-rc) release moves the pointer.
+    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.3.0-rc1}
     pull_policy: always
     container_name: quip-validator
     restart: unless-stopped

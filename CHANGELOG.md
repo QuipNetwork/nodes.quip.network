@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- `docker-compose.yml` on `main` no longer defaults `QUIP_MINER_TAG` to
+  `latest`. quip-miner's `:latest` currently still resolves to
+  `v0.3.1-rc6-aglais-prerelease` — a known gap in their own tag-gating CI,
+  already fixed going forward but not retroactive to the tag already
+  published — so an unpinned node was silently running Aglais-prerelease
+  miner code regardless of which network it otherwise targeted. The default
+  is now `v0.3.1-rc7`, a clean tag cut at the same commit, dropping the
+  `-aglais-prerelease` suffix.
+- `QUIP_VALIDATOR_TAG` moves from `wipe-rc4` to `v0.3.0-rc1`, quip-validator's
+  own tag for the identical commit. Same image, real semver name.
+- `env.example` updated to match both defaults; it previously still
+  documented `latest` as this branch's effective default.
+
 ## v0.3.0-rc1
 
 Aglais lands on a new minor line. v0.2.x stays on the retired testnet, so an
