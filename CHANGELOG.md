@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### CHANNEL selects the image set
+
+`CHANNEL` in `.env` picks which tags the stack runs. It defaults to `BETA`, so
+a fresh clone with no `.env` at all runs Aglais.
+
+- `BETA` is Aglais, the live Quip test network (runtime spec 117).
+- `PROD` is the RETIRED testnet line (runtime spec 116). A PROD stack cannot
+  join Aglais; it joins the older network, which still runs in parallel. It is
+  not "the stable half of Aglais", and the docs say so in those words.
+- Lowercase (`beta` / `prod`) is aliased. A bad value fails fast -- and note it
+  breaks `docker compose down` and `logs` too, not only `up`, so the aliases
+  are there to stop a typo locking an operator out of stopping their own stack.
+- Per-image `QUIP_*_TAG` pins still override the channel, independently per
+  image, and remain unset by default.
+
+The mechanism is compose's `extends:` with an interpolated `service:` key,
+which is the one construct in compose v5.5.0 that branches on a variable's
+VALUE rather than on unset-ness. A nested `${A:-${B:-C}}` chain cannot do it,
+and a dynamic variable name (`${QUIP_MINER_TAG_${CHANNEL}}`) is a hard parse
+error that aborts the whole file.
+
+New file `channels.yml` holds the tables and is the only file in the repo
+allowed to contain a tag literal. Seven tag claims across README, env.example
+and docs had already gone stale before it existed. All are corrected here, and
+`make show-channel` now answers "what will I actually pull" in one command.
+
+### Fixes found while doing the above
+
+- Removed `.env.example`, an orphaned tracked file nothing referenced. It
+  carried UNCOMMENTED `QUIP_MINER_TAG=v0.2` and `QUIP_VALIDATOR_TAG=v0.2`
+  pins, which point at the retired v0.2 image path and fail to pull today.
+  Copying it to `.env` produced a broken stack.
+- The v0.3 cuda image publishes no `latest` tag at all -- the registry returns
+  404. Every service default now names an explicit tag, so the cuda profile no
+  longer depends on a tag that does not exist.
+
 - `docker-compose.yml` on `main` no longer defaults `QUIP_MINER_TAG` to
   `latest`. quip-miner's `:latest` currently still resolves to
   `v0.3.1-rc6-aglais-prerelease` — a known gap in their own tag-gating CI,
@@ -12,7 +48,7 @@
   `-aglais-prerelease` suffix.
 - `QUIP_VALIDATOR_TAG` moves from `wipe-rc4` to `v0.3.0-rc1`, quip-validator's
   own tag for the identical commit. Same image, real semver name.
-- `env.example` updated to match both defaults; it previously still
+- `env.example` updated to match both defaults. It previously still
   documented `latest` as this branch's effective default.
 
 ## v0.3.0-rc1

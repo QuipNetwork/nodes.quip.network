@@ -8,7 +8,7 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 
 | Item | Value |
 |---|---|
-| Image | `registry.gitlab.com/quip.network/quip-validator/quip-network-node:wipe-rc4` (the compose default, `latest` is pre-Aglais) |
+| Image | The tag the `BETA` channel selects (see `channels.yml`, or run `make show-channel`). `latest` is pre-Aglais. |
 | Chain spec | `chain-specs/aglais-network.json` (committed; same file every operator uses) |
 | Base path | `data/aglais-chain-db` (mounted at `/data` in the validator container) |
 | Compose v2.20+ | required for `depends_on.required: false` |
@@ -43,7 +43,7 @@ cp data/validator-data/node-key data/aglais-chain-db/node-key
 # Verify the on-disk key matches the published peer id (run on the host)
 docker run --rm -v "$PWD/data/aglais-chain-db:/data:ro" \
   --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:wipe-rc4 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.3.0-rc1 \
   key inspect-node-key --file /data/node-key
 # Output: 12D3KooW... — must match this slot's peer id in chain-specs/aglais-network.json
 ```

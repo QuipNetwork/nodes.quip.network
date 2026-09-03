@@ -33,7 +33,7 @@ COMPOSE_TAGGED   := $(COMPOSE_LOCALDEV) --env-file .env --env-file $(TAGS_ENV)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help testnet localdev pull down logs clean clean-chain require-env require-mps updateconfig updateconfig-docker
+.PHONY: help testnet localdev pull down logs clean clean-chain require-env require-mps updateconfig updateconfig-docker show-channel
 
 help:
 	@echo "nodes.quip.network — operator targets"
@@ -197,3 +197,13 @@ clean: down clean-chain
 	else \
 	    rm -rf dashboard-data; \
 	fi
+
+# Answer "what will I actually pull" in one command. The image tags live in
+# channels.yml rather than docker-compose.yml, which costs one indirection;
+# this target is the mitigation. Honors CHANNEL and any QUIP_*_TAG pin exactly
+# as `up` would, because it asks compose rather than reimplementing the rules.
+show-channel:
+	@echo "CHANNEL=$${CHANNEL:-BETA} (unset means BETA)"
+	@docker compose --profile cpu --profile cuda --profile faucet config 2>/dev/null \
+	    | grep -E '^[[:space:]]+image: registry' \
+	    | sed 's/^[[:space:]]*image: /  /' | sort -u

@@ -1,0 +1,95 @@
+# Release-channel image tables.
+#
+# THIS FILE IS THE ONLY PLACE IN THE REPO WHERE A CONTAINER TAG IS WRITTEN.
+# Do not repeat these values in README.md, env.example, AGENTS.md, docs/, the
+# Makefile, or a script comment. Seven such copies had already gone stale
+# before this file existed. Point readers at `make show-channel` instead.
+#
+# CHANNEL in .env picks a column. docker-compose.yml reaches these services
+# through `extends`, which is the one thing compose can do that a nested
+# ${A:-${B:-C}} chain cannot: branch on a VALUE rather than on unset-ness.
+#
+# Nothing here starts. A service that exists only as an `extends` target never
+# joins the project and never appears in `docker compose config --services`.
+#
+# Rules for every value below:
+#   1. Never `latest`, never a rolling minor (`v0.2`). The v0.3 cuda image has
+#      no `latest` tag at all (the registry returns 404), quip-miner:latest is
+#      still v0.3.1-rc6-aglais-prerelease, and quip-validator:latest is v0.2.1
+#      -- a different runtime spec than the Aglais genesis.
+#   2. The image must already be pushed, not merely tagged in git. CI builds
+#      the image after the tag, so a fresh git tag is unpullable for a while.
+#   3. The cpu and cuda miner literals MUST match within a channel. Both are
+#      driven by one variable, QUIP_MINER_TAG, so a skew silently leaves the
+#      cuda profile unpullable while cpu works.
+#   4. No template may carry `profiles:`. `extends` unions the profiles list,
+#      so a profile here would delete always-on services from the project.
+#
+# Each template keeps QUIP_*_TAG as the OUTER term, so an explicit pin still
+# beats the channel, per image, independently.
+
+services:
+
+  # --------------------------------------------------------------- BETA ---
+  # Aglais, the live Quip test network (runtime spec 117). This is the
+  # default: a fresh clone with no .env at all runs BETA.
+  BETA-miner-cpu:
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-v0.3.1-rc7}
+  BETA-miner-cuda:
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-v0.3.1-rc7}
+  BETA-validator:
+    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.3.0-rc1}
+  BETA-dashboard:
+    # Same literal as PROD today: the dashboard's newest build predates the
+    # Aglais relaunch, so one image serves both channels. Kept as two lines,
+    # not one alias, so they can diverge the day a post-Aglais dashboard ships.
+    image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-v0.2.2}
+  BETA-faucet:
+    # The faucet publishes no version tags -- every tag is a raw commit SHA.
+    # This pins the build carrying H4 signing and EVM funding, which Aglais
+    # requires.
+    image: registry.gitlab.com/quip.network/faucet:${QUIP_FAUCET_TAG:-sha-2642803a}
+
+  # --------------------------------------------------------------- PROD ---
+  # The RETIRED testnet line (runtime spec 116). A PROD stack CANNOT join
+  # Aglais -- it joins the older network, which still runs in parallel. This
+  # is the channel for an operator who has not migrated and does not want to.
+  PROD-miner-cpu:
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-v0.3.0}
+  PROD-miner-cuda:
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-v0.3.0}
+  PROD-validator:
+    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.2.2}
+  PROD-dashboard:
+    image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-v0.2.2}
+  PROD-faucet:
+    # The one hand-cut faucet release. Predates H4, so it matches the
+    # pre-Aglais validator.
+    image: registry.gitlab.com/quip.network/faucet:${QUIP_FAUCET_TAG:-qui1028-rc1}
+
+  # ------------------------------------------------------------ aliases ---
+  # CHANNEL is case-sensitive and compose cannot validate a variable's VALUE.
+  # A typo does not just fail `up`: it also breaks `docker compose down` and
+  # `logs`, locking an operator out of stopping their own stack. Lowercase is
+  # the likely slip, so it is aliased. Titlecase deliberately is not, so a
+  # genuine typo still fails loudly.
+  beta-miner-cpu:
+    extends: { service: BETA-miner-cpu }
+  beta-miner-cuda:
+    extends: { service: BETA-miner-cuda }
+  beta-validator:
+    extends: { service: BETA-validator }
+  beta-dashboard:
+    extends: { service: BETA-dashboard }
+  beta-faucet:
+    extends: { service: BETA-faucet }
+  prod-miner-cpu:
+    extends: { service: PROD-miner-cpu }
+  prod-miner-cuda:
+    extends: { service: PROD-miner-cuda }
+  prod-validator:
+    extends: { service: PROD-validator }
+  prod-dashboard:
+    extends: { service: PROD-dashboard }
+  prod-faucet:
+    extends: { service: PROD-faucet }

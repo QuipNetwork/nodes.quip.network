@@ -29,7 +29,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | `caddy/Caddyfile` | Reverse proxy + auto-TLS. Routes `/rpc` → `quip-validator:9944`, `/api/faucet/*` → `quip-faucet:8087`, `/api/v1/*` → `quip-miner:8086`, `/` → `quip-dashboard:3001`. |
 | `config/quip-miner.toml` | Miner first-run config template, mounted over the image's `/app/config.toml` in the `cpu`/`cuda` services. Mirrors upstream `docker/config.toml` with `faucet_url` set to the Aglais faucet; the upstream template still names the retired faucet. Drop the mount when upstream catches up. |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs (colocated dev faucet). `make localdev` copies the profile's variant to `data/config.toml` before bringing the stack up. |
-| `chain-specs/aglais-network.json` | Aglais chain spec. Mirrored from the `wipe-rc4` `quip-validator` image via `export-chain-spec --chain quip-testnet --raw` (the upstream preset name is unchanged). Re-export when upstream genesis changes. |
+| `chain-specs/aglais-network.json` | Aglais chain spec. Mirrored from the `v0.3.0-rc1` `quip-validator` image via `export-chain-spec --chain quip-testnet --raw` (the upstream preset name is unchanged). Re-export when upstream genesis changes. |
 | `chain-specs/aglais-network.json.sha256` | SHA-256 checksum sidecar — always update alongside the spec. |
 | `data/config.toml` | Canonical v0.2 `[miner]` template (gitignored copy lives at operator's `data/config.toml`). |
 | `data/config.cpu.toml`, `data/config.cuda.toml` | Mode-specific templates operators `cp` to `data/config.toml` on first run. |
@@ -41,6 +41,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | `tests/test_upgrade_config.py` | 34 pytest cases against `scripts/upgrade-config.py`. |
 | `cron.sh` | Auto-update sidecar (hourly cron) — detects running profiles from container names, pulls + recreates only on digest change. |
 | `Makefile` | Operator entry points: `make testnet`, `make localdev`, `make updateconfig`, etc. |
+| `channels.yml` | Release-channel image tables. The ONLY file allowed to contain a container tag literal. `CHANNEL` picks a column; `docker-compose.yml` reaches it via `extends`. |
 | `env.example` | Template for `.env`. Read alongside `docker-compose.yml` to see all defaults. |
 | `CHANGELOG.md` | Operator-facing release notes — same v0.2 changes documented here, but framed as "what changes" rather than "how the agent should reason." |
 | `docs/testnet-deployment.md` | Bootnode operator runbook (libp2p key, BABE/GRANDPA session keys, ports). |
@@ -86,11 +87,11 @@ The `cuda` service is wired for [NVIDIA MPS](https://docs.nvidia.com/deploy/mps/
 
 ### Chain spec drift
 
-`chain-specs/aglais-network.json` mirrors the `wipe-rc4` `quip-validator` image's baked-in `quip-testnet` preset. Aglais is the Quip test network (like Sepolia for Ethereum). It started 2026-09-02 from a fresh genesis (`0x59e0…c286`, runtime 117) and keeps the chain id `quip_testnet`. If `shasum -a 256 -c chain-specs/aglais-network.json.sha256` fails after an upstream image bump, re-export:
+`chain-specs/aglais-network.json` mirrors the `v0.3.0-rc1` `quip-validator` image's baked-in `quip-testnet` preset. Aglais is the Quip test network (like Sepolia for Ethereum). It started 2026-09-02 from a fresh genesis (`0x59e0…c286`, runtime 117) and keeps the chain id `quip_testnet`. If `shasum -a 256 -c chain-specs/aglais-network.json.sha256` fails after an upstream image bump, re-export:
 
 ```bash
 docker run --rm --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:wipe-rc4 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.3.0-rc1 \
   export-chain-spec --chain quip-testnet --raw > chain-specs/aglais-network.json
 (cd chain-specs && shasum -a 256 aglais-network.json > aglais-network.json.sha256)
 ```

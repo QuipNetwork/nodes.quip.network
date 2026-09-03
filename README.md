@@ -42,7 +42,7 @@ What changed on the host:
 
 - `chain-specs/aglais-network.json` replaces `chain-specs/quip-testnet.json`. Genesis is `0x59e064bddd49a920d1392693c728c3bf9867f2cf3e0f8fea8c2498b389b0c286`. Bootnodes are `bootnode-{1,2,3}.aglais.quip.network`.
 - The validator base path moved from `data/validator-data` to `data/aglais-chain-db`. Aglais keeps the chain id `quip_testnet`, so the new spec would open the old database and reject it on genesis mismatch. A fresh directory keeps the two apart.
-- The validator image is pinned to the Aglais build: `QUIP_VALIDATOR_TAG` defaults to `wipe-rc4`. `latest` still points at the pre-Aglais image, which cannot run this chain.
+- The validator image is pinned to the Aglais build by the `BETA` channel. `latest` still points at the pre-Aglais image, which cannot run this chain. Run `make show-channel` to see the exact tag.
 - The faucet is `https://faucet.aglais.quip.network`. The miner funds and registers itself again on the new chain, so `faucet_url` in `data/config.toml` must point at the Aglais faucet. Fresh installs get it from `config/quip-miner.toml`, which compose mounts over the miner image's first-run template.
 - The dashboard Postgres volume is `aglais-pgdata`, renamed from `quip-pgdata`. The indexer scans from genesis and keys nothing by chain, so the retired network's blocks and miners would otherwise sit in the tables beside Aglais data. The new name gives a clean index without deleting anything.
 
@@ -57,7 +57,7 @@ docker compose --profile cpu up -d   # or: make testnet PROFILE=cpu
 
 `up -d` creates `data/aglais-chain-db` and syncs Aglais from genesis. The first start waits for that sync, see [Initial sync](#initial-sync).
 
-The miner keystore at `data/keystore.json` still loads, but the miner image on `latest` (`v0.3.1-rc3-aglais-prerelease`) signs with the H4 suite and derives a different on-chain account from the same seed. The miner funds and registers that new account itself on first start against Aglais, through `faucet_url`. The `ss58` field inside `keystore.json` is stale metadata from the H3 era and is no longer the account the miner uses. Read the live account from the dashboard or from `QuantumPow.Miners`, not from the file.
+The miner keystore at `data/keystore.json` still loads, but the miner image the `BETA` channel selects signs with the H4 suite and derives a different on-chain account from the same seed. The miner funds and registers that new account itself on first start against Aglais, through `faucet_url`. The `ss58` field inside `keystore.json` is stale metadata from the H3 era and is no longer the account the miner uses. Read the live account from the dashboard or from `QuantumPow.Miners`, not from the file.
 
 Nothing from the retired network is deleted for you. The old chain database stays at `data/validator-data` and the old dashboard index stays in the `quip-pgdata` volume. Delete both when you no longer need to go back:
 
@@ -96,7 +96,7 @@ git pull origin v0.2
 Review `docker-compose.yml` and `env.example` against your local `.env`:
 
 - **New env vars** you'll want to set before the first start: `QUIP_MINER_CPUSET`, `VALIDATOR_NAME`, `CERT_EMAIL`.
-- **Image tag vars** (`QUIP_MINER_TAG`, `QUIP_VALIDATOR_TAG`, `QUIP_DASHBOARD_TAG`, `QUIP_FAUCET_TAG`) all default to `latest` and are best left unset. A value in your `.env` overrides the compose default, so a stale pin holds the stack on an old build.
+- **Image tag vars** (`QUIP_MINER_TAG`, `QUIP_VALIDATOR_TAG`, `QUIP_DASHBOARD_TAG`, `QUIP_FAUCET_TAG`) are unset by default; `CHANNEL` supplies the tag instead. Set one only to override its image, and note that a stale pin holds the stack on an old build. `make show-channel` prints what you will actually pull.
 - **Removed env vars** — delete these from your `.env` if present (they're no longer consumed by v0.2 and only clutter the file):
   - `QUIP_NODE_URL` — superseded by `QUIP_VALIDATOR_RPC_URLS` (now drives both chain indexing and the miner REST surface; comma-separated list of substrate WS URLs).
   - `QUIP_NODE_TOKEN` — removed; bearer-token access control moved out of the dashboard image into the deployment layer (reverse-proxy auth, network policy).
@@ -425,7 +425,7 @@ To verify provenance against the published validator image:
 
 ```bash
 docker run --rm --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:wipe-rc4 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.3.0-rc1 \
   export-chain-spec --chain quip-testnet --raw > /tmp/from-image.json
 shasum -a 256 /tmp/from-image.json chain-specs/aglais-network.json
 # Both hashes should match exactly.
@@ -439,11 +439,11 @@ The chain spec is mirrored from `quip-validator`: `node/src/chain_spec.rs::quip_
 
 ```bash
 # Pull the tagged image
-docker pull registry.gitlab.com/quip.network/quip-validator/quip-network-node:wipe-rc4
+docker pull registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.3.0-rc1
 
 # Re-export and update the checksum sidecar
 docker run --rm --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:wipe-rc4 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.3.0-rc1 \
   export-chain-spec --chain quip-testnet --raw > chain-specs/aglais-network.json
 (cd chain-specs && shasum -a 256 aglais-network.json > aglais-network.json.sha256)
 ```
