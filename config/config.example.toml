@@ -1,0 +1,119 @@
+# Canonical quip-miner config.toml example (v0.3 schema).
+#
+# This file is documentation, not a mount. Nothing in docker-compose.yml reads
+# it. The live config is data/config.toml: the image entrypoint seeds that file
+# from config/quip-miner.toml on first run, and after that data/config.toml is
+# the source of truth. Edit it and restart the miner.
+#
+# Use this file to look up a key, its default, and what it does. Copy the parts
+# you need into data/config.toml. Every key documented here is present in the
+# quip-miner v0.3 template or named by the coordinator itself; keys that only
+# existed in v0.2 are listed at the bottom under "Removed in v0.3".
+#
+# Upgrading an older config? Run `make updateconfig`, which rewrites a v0.1 or
+# v0.2 config in place and backs up the original.
+
+[miner]
+
+# Ordered chain endpoints, tried in order and live-rotated on disconnect.
+# Default when unset: both entries below. The first is the validator that
+# docker-compose.yml runs beside the miner; the second is a fallback for a
+# validator reachable on the host network. Leave this alone unless the miner
+# runs on a host with no local validator.
+validators = ["ws://quip-validator:9944", "ws://127.0.0.1:9944"]
+
+# Faucet used to auto-fund the miner account at startup. A miner that cannot
+# pay transaction fees mines normally and then fails every submit, so the
+# coordinator tops the account up here and refuses to start if it cannot.
+# Aglais is the Quip test network, in the way Sepolia is Ethereum's. This value
+# is wrong for mainnet: point it at your own faucet, or set "" to disable
+# auto-funding and fund the account yourself.
+faucet_url = "https://faucet.aglais.quip.network"
+
+# Funding thresholds, in plancks. Shown with their defaults; uncomment to change.
+# Below min_balance_plancks the coordinator asks the faucet for a top-up.
+# min_balance_plancks = 2000000000000      # 2 UNIT
+# faucet_top_up_plancks = 10000000000000   # 10 UNIT
+# funding_timeout_s = 600                  # give up after this long
+
+# Consecutive failed submissions of one proof, inside one quantum block, before
+# the coordinator stops retrying and reports loudly. Chain state reports that a
+# proof did not land but not why, so this bound turns a permanently rejected
+# proof into a visible stop rather than an endless retry.
+# max_submit_attempts = 5
+
+# H4 hybrid sr25519 + FN-DSA-512 signer. The entrypoint generates a keystore at
+# exactly this path on first run when the file is missing. Mount your own over
+# /data/keystore.json to bring an existing key.
+#
+# BACK THIS UP. The chain account lives here, and it cannot be recovered.
+#
+# Note the `ss58` field inside keystore.json is stale H3 metadata and is not
+# the address the miner signs with. Read the real address from the dashboard or
+# from chain state, not from that file.
+signer_key = "/data/keystore.json"
+
+# How peers reach this node from outside the host. Both are required, and an
+# empty string is not a host. This is the public front door, not the validator
+# peer port (9944) and not the dashboard port (9090).
+public_host = "203.0.113.10"
+public_port = 20050
+
+# Display name on telemetry. Carried over by `make updateconfig` from older
+# configs. It is not in the upstream v0.3 template, so treat it as cosmetic.
+# node_name = "my-node"
+
+
+# --- Mining backend: at least one section is required ----------------------
+#
+# The coordinator refuses to start with no backend section, naming [cpu],
+# [cuda.N], [metal], and [dwave]/[qpu]. Each section maps to a binary the image
+# supplies. Declare only the backends you actually want to run.
+
+# CPU miner. The cpu image bundles both binaries; `binary` picks the variant.
+[cpu]
+binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
+
+# CUDA miner, one section per GPU index. Provided by the cuda image, which the
+# `cuda` compose profile selects.
+# [cuda.0]
+# binary = "quip-cuda-sa"
+
+# D-Wave QPU miner. Needs a Leap token (DWAVE_API_TOKEN) for real hardware.
+# Connection credentials (token, solver, region) come from D-Wave's own config
+# (dwave.conf plus env), not from this file. num_reads and anneal_time come
+# from the chain difficulty target, not from here.
+#
+# The budget keys below meter QPU access time. The pool accrues at
+# daily_budget/86400 per wall-second; the miner idles until it reaches
+# min_block_budget, then bursts until the pool drains. Durations take s/m/h/d/w
+# suffixes or a plain number of seconds.
+# [dwave]
+# binary = "quip-dwave-qa"
+# daily_budget = "30s"      # QPU access time granted per day
+# min_block_budget = "90s"  # start threshold; default min(90s, daily_budget)
+# budget_cap = "5m"         # max pool size; default uncapped
+
+
+# --- Mining-attempt dashboard and indexer REST surface ---------------------
+#
+# Records every solved model as JSONL under data_dir/<qblock_id>/attempts.jsonl
+# and serves /healthz, /qblocks, /<qblock_id>/attempts.jsonl, /api/v1/status,
+# /api/v1/stats, and /api/v1/mining/attempts.
+#
+# The port must match caddy/Caddyfile, which proxies /api/v1/* to
+# quip-miner:8086. Upstream's own template says 20100; this stack uses 8086 and
+# keeps the two in sync. Change one and you must change the other. Keep
+# data_dir under the mounted /data volume so history survives restarts. Omit
+# the whole section to disable.
+[dashboard]
+listen = "0.0.0.0:8086"
+data_dir = "/data/attempts"
+
+
+# --- Removed in v0.3 -------------------------------------------------------
+#
+# [miner].rest_host and [miner].rest_port configured the REST surface in v0.2.
+# v0.3 replaced them with [dashboard].listen above. The v0.3 coordinator names
+# these keys when it rejects a v0.2 config, so delete them rather than leaving
+# them in place. `make updateconfig` folds them into [dashboard].listen for you.

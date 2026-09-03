@@ -164,8 +164,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `[global]` (table) | `[miner]` | Rename. |
 | `[global].node_name` | `[miner].node_name` | Most important field — carried over by the converter. |
 | `[global].public_host`, `.public_port` | `[miner].public_host`, `.public_port` | Promoted to first-class (was commented in v0.1). |
-| `[global].rest_host` | `[miner].rest_host` | Direct copy. |
-| `[global].rest_port` | `[miner].rest_port` (**forced to 8086**) | Caddy now proxies `/api/v1/*` to `quip-miner:8086` (the upstream image default). v0.1 values like 443 (miner-terminated TLS) break the Caddy upstream. Converter forces 8086 + warns. |
+| `[global].rest_host`, `.rest_port` | `[dashboard].listen` | v0.2 put these in `[miner]`. v0.3 removed both and serves the REST surface from `[dashboard]`. The value is pinned to `0.0.0.0:8086` because Caddy proxies `/api/v1/*` to `quip-miner:8086`. A v0.1 port such as 443, used when the miner served TLS itself, breaks the Caddy upstream, so the converter carries nothing over and warns. |
 | `[global].log_level`, `.node_log` | `[miner].log_level`, `.node_log` | Promoted; `node_log` is now rotating 10MB × 5 (was unbounded in v0.1). |
 | `[global].secret` | dropped | Deterministic-key seed replaced by hybrid sr25519 + ML-DSA-44 keystore at `signer_key`. |
 | `[global].genesis_config` | dropped | Genesis owned by validator (chain spec baked into binary). |
@@ -177,10 +176,22 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `[global].http_log` | dropped | aiohttp logger no longer split out — shares `node_log`. |
 | `[global].telemetry_enabled`, `.telemetry_dir` | dropped | File-based per-block telemetry replaced by `/api/v1/*` REST surface. |
 | `[telemetry_api]` table | dropped | In-process bearer-token auth gone; access control is deployment-layer (reverse-proxy auth, network policy). |
-| `[miner].validators` | **new, required** | Ordered failover list of substrate WS URLs. Default in v0.2: `["ws://quip-validator:9944"]` (the colocated bundled validator). |
+| `[miner].validators` | **new, required** | Ordered failover list of substrate WS URLs. Default `["ws://quip-validator:9944", "ws://127.0.0.1:9944"]`, matching the coordinator's own built-in fallback. Writing only the first entry silently removes the loopback fallback. |
 | `[miner].signer_key` | **new, required** | Path to the hybrid sr25519 + ML-DSA-44 keystore. Default `/data/keystore.json`; entrypoint auto-generates on first start. |
 | `[miner].faucet_url` | **new, optional** | Dev auto-topup. Production: `https://faucet.aglais.quip.network` (converter default). Set empty to opt out. |
 | `[cpu]`, `[gpu]`, `[cuda.N]`, `[nvidia.N]`, `[metal]`, `[modal]`, `[qpu]`, `[dwave]`, `[ibm]`, `[braket]`, `[pasqal]`, `[ionq]`, `[origin]` | **preserved verbatim** | Backend tuning unchanged. Mode selection is now driven by which backend sections are present (`quip-miner resolve-modes` reads the config), not by env vars. |
+
+### v0.2 → v0.3
+
+| Change | Detail |
+|---|---|
+| `[miner].rest_host`, `[miner].rest_port` | **removed**. Replaced by `[dashboard].listen`. The coordinator names both keys verbatim when it rejects a config, so they must be deleted, not left behind. |
+| `[dashboard]` table | `listen` plus `data_dir`. `listen` must match `caddy/Caddyfile`, which proxies `/api/v1/*` to `quip-miner:8086`. Upstream's own template says `20100`; this stack uses `8086` and `config/quip-miner.toml` patches it. |
+| backend section | **required**. The coordinator refuses to start without one of `[cpu]`, `[cuda.N]`, `[metal]`, `[dwave]`/`[qpu]`. The converter warns instead of inventing one. |
+| `binary` per backend | Selects the miner variant. The cpu image bundles `quip-cpu-sa` and `quip-cpu-gibbs`. The converter writes `quip-cpu-sa` into a `[cpu]` table that has none. |
+| `[miner].faucet_url` | Repointed at the Aglais faucet when it still names the retired testnet. |
+
+`config/config.example.toml` is the canonical documented example of the v0.3 schema.
 
 **Loader aliases (do NOT rely on)**: `[miner].listen` → `rest_host`, `[miner].port` → `rest_port`. The v0.2 loader silently rewrites these for copy-paste safety, but semantics flipped (v0.1 QUIC peer port → v0.2 telemetry REST). The converter drops `listen`/`port` with a loud warning instead of using the alias, to prevent an operator with `port = 20049` from accidentally exposing the REST API on what used to be the peer port.
 
@@ -191,7 +202,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `QUIP_NODE_URL` | `QUIP_VALIDATOR_RPC_URLS` | Plural; comma-separated; drives both chain indexing and the miner REST surface that Caddy fronts on the same host. Forward-looking name; upstream dashboard image migration pending — currently the image still reads `QUIP_NODE_URL`. |
 | `QUIP_NODE_TOKEN` | dropped | Bearer-token access control is now deployment-layer. |
 | `QUIP_HOSTNAME` | unchanged (semantics expanded) | Drives Caddy listen + TLS. Comma-separated form (`host, host:20049`) needed for prod TLS. |
-| `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, `QUIP_REST_PORT`, `QUIP_REST_HOST`, `QUIP_SIGNER_KEY` | **dead** (config-driven) | The v0.2.1-rc miner images have no configuration env vars — set `[miner].validators` / `.faucet_url` / `.rest_port` / `.rest_host` / `.signer_key` in `data/config.toml` instead. `make updateconfig` backfills these keys and strips the dead lines from `.env`. |
+| `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, `QUIP_REST_PORT`, `QUIP_REST_HOST`, `QUIP_SIGNER_KEY` | **dead** (config-driven) | The v0.2.1-rc miner images have no configuration env vars — set `[miner].validators` / `.faucet_url` / `.signer_key` and `[dashboard].listen` in `data/config.toml` instead. `make updateconfig` backfills these keys and strips the dead lines from `.env`. |
 | `QUIP_VALIDATOR_TAG`, `QUIP_VALIDATOR_RPC_URLS`, `QUIP_FAUCET_TAG`, `QUIP_FAUCET_NODE_URL`, `QUIP_FAUCET_KEY`, `QUIP_FAUCET_RATE_LIMIT_SECONDS`, `QUIP_FAUCET_ALLOW_ANY_CHAIN`, `VALIDATOR_NAME`, `CERT_EMAIL`, `ZEROSSL_API_KEY`, `QUIP_MINER_CPUSET`, `QUIP_CHAIN_SPEC`, `QUIP_DASHBOARD_TAG` | new | See `env.example` for inline docs. |
 
 `.env` is compose's interpolation source only — there is no blanket `env_file:` anywhere in `docker-compose.yml`, so a variable reaches a container only when an `environment:` entry wires it through. `SUBSTRATE_BOOTNODES` was dropped entirely (compose can't split one env var into multiple `--bootnodes` argv tokens; use a `docker-compose.override.yml`).

@@ -130,14 +130,18 @@ python3 scripts/upgrade-config.py data
 
 Defaults to `./data`; override with `DATA=/path/to/data`. The converter:
 - moves every entry in `data/` (including your old `config.toml`) into `data/.v0.1_backup/`
-- writes a fresh `data/config.toml` in v0.2 shape, carrying over `node_name`, `public_host`, `public_port`, `rest_host`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
-- forces `rest_port = 8086` (v0.2 Caddy proxies `/api/v1/*` to `quip-miner:8086`; v0.1 deployments using miner-terminated TLS often had `rest_port = 443`, which would leave Caddy's upstream unreachable)
-- defaults `validators = ["ws://quip-validator:9944"]` — the local bundled validator. It peers with the testnet bootnodes via libp2p on `:30333`, so this entry is correct out of the box and shouldn't be edited
+- writes a fresh `data/config.toml` in v0.3 shape, carrying over `node_name`, `public_host`, `public_port`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
+- moves the REST surface into `[dashboard]`. v0.3 removed `[miner].rest_host` and `[miner].rest_port`, and the coordinator names both keys when it rejects a config. The converter pins `listen` to `0.0.0.0:8086` because `caddy/Caddyfile` proxies `/api/v1/*` to `quip-miner:8086`. It carries no v0.1 value over: those deployments often set `rest_port = 443` so the miner served TLS itself, which leaves Caddy's upstream unreachable
+- adds `binary = "quip-cpu-sa"` to a `[cpu]` table that has none. v0.3 selects the miner variant with this key
+- warns when the config names no mining backend at all. v0.3 refuses to start without one of `[cpu]`, `[cuda.N]`, `[metal]`, `[dwave]`/`[qpu]`, and the converter reports this rather than choosing your hardware for you
+- defaults `validators = ["ws://quip-validator:9944", "ws://127.0.0.1:9944"]` — the bundled local validator, then a host-network fallback. These match the coordinator's own built-in default. The first entry peers with the Aglais bootnodes via libp2p on `:30333`, so the pair is correct out of the box and does not need editing
 - sets `faucet_url = "https://faucet.aglais.quip.network"` so the miner's first-boot self-bootstrap (register + fund) works
 - defaults `signer_key = "/data/keystore.json"` — the entrypoint auto-generates the hybrid keystore on first start
 - warns loudly about dropped `[global].port` / `[global].listen` (semantics flipped from QUIC peer to telemetry REST — the v0.2 loader would silently alias these, but that risks exposing the REST API on what used to be the peer port)
 
-Already on the v0.2 config schema? Run it anyway: on a `[miner]`-schema config it backfills the keys that used to arrive via the now-removed `QUIP_*` env vars (`validators`, `faucet_url`, `rest_port`, `rest_host`), harvesting any uncommented values from your `.env` before stripping those dead lines (backups: `data/config.toml.pre-backfill.bak`, `.env.pre-config-driven_backup`).
+Already on the `[miner]` schema? Run it anyway. On such a config the converter backfills the keys that used to arrive through the now-removed `QUIP_*` env vars (`validators`, `faucet_url`), harvesting any uncommented values from your `.env` before stripping those dead lines. It then applies the v0.2 to v0.3 migration in the same pass: the rest keys move into `[dashboard]`, `[cpu].binary` is filled in, and a `faucet_url` still naming the retired testnet is repointed at Aglais. Backups are `data/config.toml.pre-backfill.bak` and `.env.pre-config-driven_backup`.
+
+[`config/config.example.toml`](config/config.example.toml) documents every key the converter writes.
 - migrates `.env` alongside (sibling of `data/`): backs up the current file to `.env.v0.1_backup`, drops stale `QUIP_NODE_URL` / `QUIP_NODE_TOKEN` lines (commented or uncommented), and appends a commented `QUIP_VALIDATOR_RPC_URLS` placeholder. Use `--no-env-file` (or `make updateconfig DATA=data` with the env override unset) to skip the `.env` step.
 
 Idempotent: re-running on an already-converted dir exits with "nothing to do".
@@ -550,6 +554,7 @@ docker compose --profile cpu up -d --force-recreate
 |------|---------|
 | `docker-compose.yml` | Node + validator + faucet + dashboard + postgres + caddy services |
 | `caddy/Caddyfile` | Reverse-proxy + auto-TLS config for the Caddy front door |
+| `config/config.example.toml` | Canonical v0.3 config example, documented key by key (reference only, not mounted) |
 | `data/config.toml` | Active node configuration (copied from a template) |
 | `data/config.cpu.toml` | CPU mode template (base for QPU/D-Wave; uncomment `[qpu]` + `[dwave]`) |
 | `data/config.cuda.toml` | CUDA GPU mode template |

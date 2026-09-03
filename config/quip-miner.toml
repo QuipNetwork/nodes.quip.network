@@ -1,7 +1,10 @@
 # quip-coordinator first-run config template.
 #
 # Mirrors docker/config.toml from quip-miner v0.3.1-rc3-aglais-prerelease with
-# one change: faucet_url points at the Aglais faucet. docker-compose.yml mounts
+# two changes: faucet_url points at the Aglais faucet, and [dashboard].listen
+# uses 8086 rather than upstream's 20100 because caddy/Caddyfile proxies
+# /api/v1/* to quip-miner:8086. Leaving upstream's port here would seed a fresh
+# operator with a REST surface Caddy cannot reach. docker-compose.yml mounts
 # this file over the image's /app/config.toml, and the image entrypoint copies
 # it to /data/config.toml on first run; after that /data/config.toml is the
 # source of truth (edit + restart). Drop this mount once the upstream template
@@ -76,9 +79,8 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 #   GET /api/v1/status, GET /api/v1/stats, GET /api/v1/mining/attempts
 # Listen on 0.0.0.0:20100 so host.docker.internal:20100 matches the Caddy
 # reverse_proxy for /api/v1/* (see
-# quip-node-manager/vendor/nodes.quip.network/caddy/Caddyfile — the miner's
-# rest_port default). Use the mounted /data volume so history survives
-# restarts. Omit the section to disable.
+# caddy/Caddyfile in this repo). Use the mounted /data volume so history
+# survives restarts. Omit the section to disable.
 [dashboard]
-listen = "0.0.0.0:20100"
+listen = "0.0.0.0:8086"
 data_dir = "/data/attempts"

@@ -61,23 +61,30 @@ def test_conversion_produces_valid_v02_config(fixture, tmp_path):
 
     assert "miner" in parsed
     assert "global" not in parsed
-    assert parsed["miner"]["validators"] == ["ws://quip-validator:9944"]
+    assert parsed["miner"]["validators"] == [
+        "ws://quip-validator:9944",
+        "ws://127.0.0.1:9944",
+    ]
     assert parsed["miner"]["signer_key"] == "/data/keystore.json"
     assert parsed["miner"]["faucet_url"] == "https://faucet.aglais.quip.network"
-    assert "rest_host" in parsed["miner"]
-    assert parsed["miner"]["rest_port"] == 8086
+    # v0.3 removed both rest keys; the REST surface lives in [dashboard].
+    assert "rest_host" not in parsed["miner"]
+    assert "rest_port" not in parsed["miner"]
+    assert parsed["dashboard"]["listen"] == "0.0.0.0:8086"
+    assert parsed["dashboard"]["data_dir"] == "/data/attempts"
 
 
-def test_rest_port_forced_to_caddy_proxy_port(tmp_path):
-    """v0.1 deployments with rest_port=443 (miner-terminated TLS) get
-    forced to 8086 in v0.2 since Caddy proxies /api/v1/* to
-    quip-miner:8086. Leaving it at 443 produces 502s from Caddy →
-    dashboard indexer can't read miner telemetry."""
+def test_v01_rest_port_moves_to_dashboard_listen(tmp_path):
+    """v0.1 deployments with rest_port=443 (miner-terminated TLS) do not carry
+    that port forward. v0.3 serves the REST surface from [dashboard].listen,
+    pinned to the port caddy/Caddyfile proxies /api/v1/* to. Leaving it at 443
+    produces 502s from Caddy, so the indexer cannot read miner telemetry."""
     data_dir = _copy_fixture("qpu", tmp_path)  # qpu fixture has rest_port = 443
     result = _run(data_dir)
     parsed = tomllib.loads((data_dir / "config.toml").read_text())
-    assert parsed["miner"]["rest_port"] == 8086
-    assert "forcing [miner].rest_port to 8086" in result.stderr
+    assert "rest_port" not in parsed["miner"]
+    assert parsed["dashboard"]["listen"] == "0.0.0.0:8086"
+    assert "REST surface moved to [dashboard].listen" in result.stderr
     assert "rest_port=443" in result.stderr
 
 
@@ -143,7 +150,8 @@ def test_backfill_on_already_v02(tmp_path):
     # Empty list removed entirely → the miner's built-in fallback applies.
     assert "validators" not in parsed["miner"]
     assert parsed["miner"]["faucet_url"] == "https://faucet.aglais.quip.network"
-    assert parsed["miner"]["rest_port"] == 8086
+    assert "rest_port" not in parsed["miner"]
+    assert parsed["dashboard"]["listen"] == "0.0.0.0:8086"
     assert (data_dir / "config.toml.pre-backfill.bak").is_file()
 
 
@@ -422,3 +430,98 @@ def test_env_migration_dry_run_leaves_fs_untouched(tmp_path):
     assert "[dry-run] would back up" in result.stderr
     assert env_path.read_text() == original
     assert not (data_dir.parent / ".env.v0.1_backup").exists()
+
+
+def _v02_with(tmp_path, extra):
+    """already-v0.2 fixture with `extra` TOML appended to the config."""
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+    config = data_dir / "config.toml"
+    config.write_text(config.read_text() + extra)
+    return data_dir
+
+
+def test_v02_rest_keys_removed_and_dashboard_added(tmp_path):
+    """v0.3 dropped [miner].rest_host/rest_port and serves the REST surface
+    from [dashboard].listen. The coordinator names both keys when it rejects a
+    v0.2 config, so they must be removed, not left in place."""
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert "rest_port" not in parsed["miner"]
+    assert "rest_host" not in parsed["miner"]
+    assert parsed["dashboard"]["listen"] == "0.0.0.0:8086"
+    assert "removed v0.2-only" in result.stderr
+
+
+def test_existing_dashboard_table_is_not_overwritten(tmp_path):
+    """An operator who already tuned [dashboard] keeps their value; the
+    migration only supplies the table when it is missing."""
+    data_dir = _v02_with(
+        tmp_path, '\n[dashboard]\nlisten = "127.0.0.1:9999"\ndata_dir = "/data/x"\n'
+    )
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["dashboard"]["listen"] == "127.0.0.1:9999"
+    assert parsed["dashboard"]["data_dir"] == "/data/x"
+
+
+def test_cpu_binary_backfilled(tmp_path):
+    """v0.3 selects the miner variant with [cpu].binary. A v0.2 config has no
+    such key, so the migration writes the bundled default explicitly rather
+    than relying on an implicit one."""
+    data_dir = _v02_with(tmp_path, "\n[cpu]\n")
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["cpu"]["binary"] == "quip-cpu-sa"
+    assert "added [cpu].binary" in result.stderr
+
+
+def test_existing_cpu_binary_left_alone(tmp_path):
+    data_dir = _v02_with(tmp_path, '\n[cpu]\nbinary = "quip-cpu-gibbs"\n')
+
+    _run(data_dir)
+
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["cpu"]["binary"] == "quip-cpu-gibbs"
+
+
+def test_missing_backend_section_warns_without_inventing_one(tmp_path):
+    """v0.3 refuses to start with no backend section. Report it; do not pick
+    the operator's mining hardware for them."""
+    data_dir = _copy_fixture("already-v0.2", tmp_path)
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert not {"cpu", "cuda", "metal", "dwave", "qpu"} & set(parsed)
+    assert "no mining backend section" in result.stderr
+
+
+def test_cuda_backend_satisfies_the_backend_check(tmp_path):
+    data_dir = _v02_with(tmp_path, "\n[cuda.0]\nutilization = 50\n")
+
+    result = _run(data_dir)
+
+    assert "no mining backend section" not in result.stderr
+
+
+def test_v01_cpu_backend_gets_explicit_binary(tmp_path):
+    """The v0.1 backend tables are carried over verbatim, so they arrive
+    without the `binary` key v0.3 uses to pick the miner variant."""
+    data_dir = _copy_fixture("cpu", tmp_path)
+
+    _run(data_dir)
+
+    parsed = tomllib.loads((data_dir / "config.toml").read_text())
+    assert parsed["cpu"]["binary"] == "quip-cpu-sa"
+    assert parsed["cpu"]["num_cpus"] == 1

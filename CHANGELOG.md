@@ -26,6 +26,32 @@ testnet retires after operators move. This stack joins Aglais by default.
   upstream template in `v0.3.1-rc3-aglais-prerelease` still names the retired
   faucet, so a fresh install seeded from the image would fund against the
   wrong chain.
+- `config/config.example.toml` is new. It documents every key of the v0.3
+  schema: the default for each one and the reason it exists. Nothing mounts
+  it. Use it as a reference when editing `data/config.toml`.
+- `config/quip-miner.toml` sets `[dashboard].listen` to `0.0.0.0:8086`.
+  Upstream's template says `20100`, but `caddy/Caddyfile` proxies `/api/v1/*`
+  to `quip-miner:8086`. Because this file seeds `data/config.toml` on first
+  run, upstream's port would have left a fresh install with a REST surface
+  Caddy cannot reach. Existing operators are unaffected: their
+  `data/config.toml` already exists and is never overwritten.
+
+### `make updateconfig` migrates v0.2 to v0.3
+
+- `[miner].rest_host` and `[miner].rest_port` are removed and the REST surface
+  moves to `[dashboard].listen`. The v0.3 coordinator names both keys when it
+  rejects a config, so leaving them in place is not harmless. The old values
+  are not carried over, because the port must match `caddy/Caddyfile`.
+- A `[cpu]` table with no `binary` gets `quip-cpu-sa`, the bundled default.
+  v0.3 selects the miner variant with this key.
+- A config that names no mining backend is reported, not repaired. v0.3
+  refuses to start without one of `[cpu]`, `[cuda.N]`, `[metal]`,
+  `[dwave]`/`[qpu]`, and choosing an operator's mining hardware is not the
+  converter's decision.
+- The `validators` default is now
+  `["ws://quip-validator:9944", "ws://127.0.0.1:9944"]`. The converter
+  previously wrote only the first entry, which silently removed the loopback
+  fallback that an untouched config gets from the coordinator itself.
 - The documented export procedure passes `--entrypoint
   /usr/local/bin/quip-network-node`. The image entrypoint prints a line to
   stdout before the JSON, which corrupts a plain redirect.
