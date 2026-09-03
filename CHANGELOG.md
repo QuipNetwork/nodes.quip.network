@@ -2,6 +2,16 @@
 
 ## v0.3 (unreleased)
 
+### Stop floating the miner on latest
+
+quip-miner's `:latest` currently resolves to an Aglais prerelease build
+(`v0.3.1-rc6-aglais-prerelease`), not the last stable release. Their own
+CI history shows this is a known gap already fixed going forward, but a
+tag isn't retroactively corrected by a rule change, so `:latest` stays
+wrong until they ship a new stable release. `QUIP_MINER_TAG` now defaults
+to `v0.3.0` instead, so this stable branch cannot silently pick up
+Aglais-flavored miner code.
+
 ### The miner, dashboard, and faucet wait for a synced validator
 
 `quip-validator` now carries a healthcheck, and the three services that read the

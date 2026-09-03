@@ -74,7 +74,7 @@ services:
   # first run. There are no QUIP_* config env vars. The environment block
   # carries only host concerns (PUID/PGID) plus the D-Wave credential.
   cpu:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-latest}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner:${QUIP_MINER_TAG:-v0.3.0}
     pull_policy: always
     container_name: quip-cpu
     restart: unless-stopped
@@ -143,7 +143,7 @@ services:
         required: false
 
   cuda:
-    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-latest}
+    image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-v0.3.0}
     pull_policy: always
     container_name: quip-cuda
     restart: unless-stopped
