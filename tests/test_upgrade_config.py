@@ -525,3 +525,27 @@ def test_v01_cpu_backend_gets_explicit_binary(tmp_path):
     parsed = tomllib.loads((data_dir / "config.toml").read_text())
     assert parsed["cpu"]["binary"] == "quip-cpu-sa"
     assert parsed["cpu"]["num_cpus"] == 1
+
+
+def test_qpu_only_backend_warns_about_missing_fallback(tmp_path):
+    """A QPU rejects every job while its access-time budget is spent, and the
+    coordinator drops a rejected job when no other backend can take it. A
+    config naming only a QPU therefore mines nothing between budget refills."""
+    data_dir = _v02_with(tmp_path, '\n[dwave]\nbinary = "quip-dwave-qa"\n')
+
+    result = _run(data_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "no alternative" not in result.stderr  # not the coordinator's wording
+    assert "the only mining backend is dwave" in result.stderr
+    assert "Add [cpu]" in result.stderr
+
+
+def test_qpu_with_cpu_fallback_does_not_warn(tmp_path):
+    data_dir = _v02_with(
+        tmp_path, '\n[cpu]\nbinary = "quip-cpu-sa"\n\n[dwave]\nbinary = "quip-dwave-qa"\n'
+    )
+
+    result = _run(data_dir)
+
+    assert "the only mining backend" not in result.stderr

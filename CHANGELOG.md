@@ -59,6 +59,10 @@ testnet retires after operators move. This stack joins Aglais by default.
   are not carried over, because the port must match `caddy/Caddyfile`.
 - A `[cpu]` table with no `binary` gets `quip-cpu-sa`, the bundled default.
   v0.3 selects the miner variant with this key.
+- A config whose only backend is a QPU (`[dwave]`/`[qpu]`) is reported. Such a
+  node drops every job while the QPU access-time budget is spent, because the
+  coordinator has no other capable backend to re-route to, so it mines nothing
+  between refills. Adding `[cpu]` absorbs the rejections.
 - A config that names no mining backend is reported, not repaired. v0.3
   refuses to start without one of `[cpu]`, `[cuda.N]`, `[metal]`,
   `[dwave]`/`[qpu]`, and choosing an operator's mining hardware is not the

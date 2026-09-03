@@ -105,6 +105,12 @@ DASHBOARD_DATA_DIR = "/data/attempts"
 CPU_DEFAULT_BINARY = "quip-cpu-sa"
 BACKEND_TABLE_ROOTS = frozenset({"cpu", "cuda", "metal", "dwave", "qpu"})
 
+# Backends that answer from a quantum processor. These reject work whenever
+# their access-time budget is spent, and the coordinator drops a rejected job
+# when no other backend can take it ("no alternative capable miner"). A config
+# naming only these mines nothing while the budget refills.
+QPU_BACKEND_ROOTS = frozenset({"dwave", "qpu"})
+
 # Aglais faucet (the Quip test network), written into configs that lack
 # faucet_url so the miner's first-boot self-bootstrap (register + fund)
 # keeps working now that the QUIP_FAUCET_URL env var is gone (the
@@ -663,6 +669,16 @@ def _backfill_backend(lines, parsed, notes, warnings):
             "pick your hardware for you."
         )
         return
+    if roots <= QPU_BACKEND_ROOTS:
+        warnings.append(
+            f"the only mining backend is {'/'.join(sorted(roots))}, which leaves "
+            "the coordinator no fallback. A QPU rejects every job while its "
+            "access-time budget is spent, and a rejected job with no other "
+            "capable backend is dropped, so the node mines nothing until the "
+            "budget refills. Add [cpu] (see config/config.example.toml) to "
+            "absorb the rejections."
+        )
+
     cpu = parsed.get("cpu")
     if isinstance(cpu, dict) and "binary" not in cpu:
         span = _table_bounds(lines, "cpu")
