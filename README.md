@@ -248,7 +248,7 @@ The comma-separated production form is required so a single Let's Encrypt cert c
 
 Also set:
 - `CERT_EMAIL` — required when running in TLS / production mode.
-- `DWAVE_API_KEY` — required only for QPU / D-Wave mining.
+- `DWAVE_API_TOKEN` — required only for QPU / D-Wave mining. Set `DWAVE_API_SOLVER` too on a real QPU: without it the Ocean SDK picks your account default, which may not be the Advantage2 system the chain topology targets. `DWAVE_API_KEY` is the old name and still maps forward, but nothing reads it directly.
 - `POSTGRES_PASSWORD` — optional; defaults to `quip`. Postgres isn't published to the host, so the default is safe for local use.
 - `QUIP_VALIDATOR_TAG`, `VALIDATOR_NAME` — see `env.example` for the validator and faucet sections.
 
@@ -564,7 +564,7 @@ docker compose --profile cpu up -d --force-recreate
 | `docs/testnet-deployment.md` | Operator host setup for canonical testnet bootnode validators |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle) |
 | `scripts/validator-healthcheck.sh` | Validator sync gate, mounted into the validator container as its healthcheck |
-| `.env` | Compose interpolation source: QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_KEY, tags + knobs (not checked in) |
+| `.env` | Compose interpolation source: QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_TOKEN, DWAVE_API_SOLVER, tags + knobs (not checked in) |
 | `env.example` | Template for `.env` |
 | `config/quip-miner.toml` | Miner first-run config template (Aglais faucet_url), mounted over the image's `/app/config.toml` |
 | `config/advantage2-system1-h0.spec.json` | Topology spec the network mines against (`0xe66d…a02d`). Input to `seed-chain`, not read at runtime |

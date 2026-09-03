@@ -111,10 +111,20 @@ services:
     logging: *default-logging
     environment:
       <<: *runtime-user
-      # The one config-adjacent secret still delivered by env — read by the
-      # QPU layer only, with the Ocean SDK's ~/.config/dwave/dwave.conf as
-      # the file-based fallback.
-      DWAVE_API_KEY: ${DWAVE_API_KEY:-}
+      # D-Wave connection settings, read by the QPU layer only. The miner
+      # passes solver/region/token to DWaveSampler solely as explicit
+      # overrides and otherwise lets the Ocean SDK resolve them, so these use
+      # the SDK's canonical names. ~/.config/dwave/dwave.conf remains the
+      # file-based alternative. Empty resolves identically to unset.
+      #
+      # DWAVE_API_TOKEN is the name the SDK and the miner actually read;
+      # DWAVE_API_KEY is accepted here only so existing .env files keep
+      # working. Nothing reads DWAVE_API_KEY itself.
+      DWAVE_API_TOKEN: ${DWAVE_API_TOKEN:-${DWAVE_API_KEY:-}}
+      # Pin the solver. Without it the SDK picks whatever the account defaults
+      # to, which may not be the Advantage2 system the chain topology targets.
+      DWAVE_API_SOLVER: ${DWAVE_API_SOLVER:-}
+      DWAVE_API_REGION: ${DWAVE_API_REGION:-}
     volumes:
       - ./data:/data
       # First-run config template, mounted over the image's own. The image
@@ -156,10 +166,20 @@ services:
     logging: *default-logging
     environment:
       <<: *runtime-user
-      # The one config-adjacent secret still delivered by env — read by the
-      # QPU layer only, with the Ocean SDK's ~/.config/dwave/dwave.conf as
-      # the file-based fallback.
-      DWAVE_API_KEY: ${DWAVE_API_KEY:-}
+      # D-Wave connection settings, read by the QPU layer only. The miner
+      # passes solver/region/token to DWaveSampler solely as explicit
+      # overrides and otherwise lets the Ocean SDK resolve them, so these use
+      # the SDK's canonical names. ~/.config/dwave/dwave.conf remains the
+      # file-based alternative. Empty resolves identically to unset.
+      #
+      # DWAVE_API_TOKEN is the name the SDK and the miner actually read;
+      # DWAVE_API_KEY is accepted here only so existing .env files keep
+      # working. Nothing reads DWAVE_API_KEY itself.
+      DWAVE_API_TOKEN: ${DWAVE_API_TOKEN:-${DWAVE_API_KEY:-}}
+      # Pin the solver. Without it the SDK picks whatever the account defaults
+      # to, which may not be the Advantage2 system the chain topology targets.
+      DWAVE_API_SOLVER: ${DWAVE_API_SOLVER:-}
+      DWAVE_API_REGION: ${DWAVE_API_REGION:-}
       # When a host MPS daemon is up, cap this client's GPU SMs at the operator's
       # configured utilization (the manager writes QUIP_GPU_UTILIZATION to .env).
       # NVIDIA runtime vars — no config-file equivalent exists for these.

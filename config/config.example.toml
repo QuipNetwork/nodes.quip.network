@@ -80,9 +80,12 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 # binary = "quip-cuda-sa"
 
 # D-Wave QPU miner. Needs a Leap token (DWAVE_API_TOKEN) for real hardware.
-# Connection credentials (token, solver, region) come from D-Wave's own config
-# (dwave.conf plus env), not from this file. num_reads and anneal_time come
-# from the chain difficulty target, not from here.
+# Connection credentials are NOT accepted here. The token, solver, and region
+# come from D-Wave's own config: DWAVE_API_TOKEN, DWAVE_API_SOLVER, and
+# DWAVE_API_REGION in .env, or ~/.config/dwave/dwave.conf. Setting a solver
+# matters on a real QPU, because the SDK otherwise picks the account default,
+# which may not be the Advantage2 system the chain topology targets.
+# num_reads and anneal_time come from the chain difficulty target, not here.
 #
 # The budget keys below meter QPU access time. The pool accrues at
 # daily_budget/86400 per wall-second; the miner idles until it reaches

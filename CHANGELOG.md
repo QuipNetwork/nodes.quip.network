@@ -36,6 +36,21 @@ testnet retires after operators move. This stack joins Aglais by default.
   Caddy cannot reach. Existing operators are unaffected: their
   `data/config.toml` already exists and is never overwritten.
 
+### D-Wave solver and token now reach the miner
+
+- `docker-compose.yml` passes `DWAVE_API_TOKEN`, `DWAVE_API_SOLVER`, and
+  `DWAVE_API_REGION` to the `cpu` and `cuda` services. It previously passed
+  only `DWAVE_API_KEY`, a name nothing reads: the miner checks
+  `DWAVE_API_TOKEN` (`ocean.py`, `cli.py`) and otherwise lets the Ocean SDK
+  resolve its own canonical variables. A QPU node therefore had no way to
+  select a solver through this stack, and the SDK fell back to the account
+  default, which may not be the Advantage2 system the chain topology targets.
+- `DWAVE_API_KEY` still works. Compose maps it into `DWAVE_API_TOKEN` when the
+  canonical name is unset, so an existing `.env` needs no edit. An empty value
+  resolves the same as an unset one, verified against `dwave.cloud.config`.
+- Credentials remain unavailable in `config.toml`. The `[dwave]` table accepts
+  budget and anneal keys only, which the miner enforces.
+
 ### `make updateconfig` migrates v0.2 to v0.3
 
 - `[miner].rest_host` and `[miner].rest_port` are removed and the REST surface
