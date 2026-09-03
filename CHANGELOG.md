@@ -1,6 +1,10 @@
 # Changelog
 
-## v0.3 (unreleased)
+## v0.3.0-rc1
+
+Aglais lands on a new minor line. v0.2.x stays on the retired testnet, so an
+operator on a stable release keeps the network they are already on and moves
+only when they choose an rc.
 
 ### Aglais is the default network
 
@@ -247,7 +251,10 @@ Each image ships its own `/app/config.toml` and seeds `data/config.toml` from it
 
 `config/localdev.{cpu,cuda}.toml` replace `[miner].rest_host` and `rest_port` with a `[dashboard]` section on the same port 8086, and add the `public_host` and `public_port` keys the coordinator requires.
 
-## v0.2 (unreleased)
+## v0.2.1
+
+The last release on the retired testnet. Operators who stay on v0.2.x keep
+that network. Aglais starts at v0.3.0-rc1.
 
 ### CPU miner `shm_size` raised to avoid SIGBUS
 
