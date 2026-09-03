@@ -204,7 +204,8 @@ The comma-separated production form is required so a single Let's Encrypt cert c
 
 Also set:
 - `CERT_EMAIL` — required when running in TLS / production mode.
-- `DWAVE_API_KEY` — required only for QPU / D-Wave mining.
+- `DWAVE_API_TOKEN` — required only for QPU / D-Wave mining. The v0.2
+  name `DWAVE_API_KEY` still works and logs a deprecation warning.
 - `POSTGRES_PASSWORD` — optional; defaults to `quip`. Postgres isn't published to the host, so the default is safe for local use.
 - `QUIP_VALIDATOR_TAG`, `VALIDATOR_NAME` — see `env.example` for the validator and faucet sections.
 
@@ -495,7 +496,7 @@ docker compose --profile cpu up -d --force-recreate
 | `docs/testnet-deployment.md` | Operator host setup for canonical testnet bootnode validators |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle) |
 | `scripts/validator-healthcheck.sh` | Validator sync gate, mounted into the validator container as its healthcheck |
-| `.env` | Compose interpolation source: QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_KEY, tags + knobs (not checked in) |
+| `.env` | Compose interpolation source: QUIP_HOSTNAME, CERT_EMAIL, DWAVE_API_TOKEN, tags + knobs (not checked in) |
 | `env.example` | Template for `.env` |
 | `config/quip-miner.{cpu,cuda}.toml` | Miner first-run config templates (testnet faucet_url baked in), mounted over the image's template path |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs; `make localdev` copies the profile's variant to `data/config.toml` |

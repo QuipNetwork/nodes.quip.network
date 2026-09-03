@@ -47,7 +47,7 @@ http_log = "/data/logs/quip-http.log"
 # num_cpus is auto-set by entrypoint.sh if not already configured
 
 # --- QPU (D-Wave) mining ----------------------------------------------------
-# Uncomment to run this node as a QPU miner. Requires DWAVE_API_KEY in .env.
+# Uncomment to run this node as a QPU miner. Requires DWAVE_API_TOKEN in .env.
 # [qpu]
 #
 # [dwave]
