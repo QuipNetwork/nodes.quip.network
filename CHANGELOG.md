@@ -36,6 +36,23 @@ testnet retires after operators move. This stack joins Aglais by default.
   Caddy cannot reach. Existing operators are unaffected: their
   `data/config.toml` already exists and is never overwritten.
 
+### Aglais tracks the live Advantage2_system1 working graph
+
+The registered topology drifted from the hardware. D-Wave calibrated coupler
+(938, 2812) out, so the chain described a graph with 41,515 edges while the QPU
+had 41,514. Every drifted edge is a defect the miner routes around.
+
+- `DefaultTopology` moved from `0xe66d3dfa…3693a02d` to
+  `0xcbec1eb4…0c3270e7`, dumped from the live solver. Node set is unchanged at
+  4,577.
+- Difficulty for the new topology is baselined at the values the chain already
+  ran: `min_solutions=1`, `max_energy_milli=-14563316`, `min_diversity_milli=0`.
+  It was set before the repoint, so the active default was never without a
+  difficulty entry.
+- The previous topology stays registered and mineable. Only the default moved.
+- `config/advantage2-system1-h0.spec.json` is the dumped live graph and matches
+  what the chain now runs.
+
 ### D-Wave solver and token now reach the miner
 
 - `docker-compose.yml` passes `DWAVE_API_TOKEN`, `DWAVE_API_SOLVER`, and
