@@ -75,9 +75,63 @@ public_port = 20050
 binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 
 # CUDA miner, one section per GPU index. Provided by the cuda image, which the
-# `cuda` compose profile selects.
+# `cuda` compose profile selects. The keys must sit in the numbered subtable.
+# The coordinator ignores a key written under a bare [cuda], and says nothing.
 # [cuda.0]
 # binary = "quip-cuda-sa"
+# utilization = 100        # governor ceiling, 1-100. See "GPU yielding" below.
+# yielding = false         # share the GPU with other processes
+
+# Apple Metal miner, one device. macOS-only, and no container image carries it,
+# so this section does nothing under docker compose. This file documents it
+# because the coordinator accepts [metal] and node-manager runs it on macOS.
+# [metal]
+# binary = "quip-metal-sa"
+# utilization = 100
+# yielding = false
+
+
+# --- GPU yielding (cuda and metal) -----------------------------------------
+#
+# `utilization` and `yielding` are the only governor keys the GPU backends
+# read. Put them in the backend section, once per [cuda.N] and once for
+# [metal]. utilization is a percent from 1 to 100 and defaults to 100.
+# yielding is a bool and defaults to false.
+#
+# The coordinator claims five keys for itself (binary, queue_depth,
+# idle_timeout_s, heartbeat_s, reconnect_window_s) and forwards the rest of the
+# section to the miner process verbatim. A key the backend does not recognize
+# produces a warning in the miner log, not a startup failure. The
+# `--utilization` and `--yielding` command-line flags reach only the
+# `quip-coordinator drive` benchmark harness, so this file is the only route
+# for a running stack.
+#
+# CUDA. The NVML governor measures load from other processes and compares that
+# against the ceiling. It excludes the miner's own kernels by design. A working
+# miner holds device-wide utilization near 100 percent, so a governor reading
+# the device-wide figure would throttle against itself. When foreign load
+# passes the ceiling, the miner ends its current session. That teardown is the
+# only way to free the SMs, because the kernel is persistent and keeps every SM
+# it launched with until the session goes away. Per-process attribution needs
+# NVML support and a matching process id. Inside a container, or on WSL2, the
+# governor falls back to the device-wide figure and logs which method it used.
+# That fallback holds only while another process owns a context. A miner alone
+# on a GPU never throttles. With yielding = false the ceiling is never read.
+#
+# Metal. The IOKit governor reads device-wide "Device Utilization %", which
+# counts the miner's own work. Two consequences follow. A low ceiling can make
+# a miner alone on the GPU throttle against itself. And utilization applies
+# even with yielding = false, because the per-batch work budget scales by
+# utilization/100. Yielding adds a second term. The budget gives back headroom
+# one-for-one against external load, down to a floor of half the ceiling.
+# Sustained contention slows mining, but it never stalls mining.
+#
+# Yielding is not NVIDIA MPS. MPS partitions SMs in hardware. It needs a host
+# MPS daemon on a native Linux GPU host, and you set the share from .env
+# through QUIP_GPU_UTILIZATION, which docker-compose.yml passes as
+# CUDA_MPS_ACTIVE_THREAD_PERCENTAGE. Yielding is software. It needs nothing on
+# the host and works under WSL2 and Docker Desktop. The two are independent,
+# and both may be on at once.
 
 # D-Wave QPU miner. Needs a Leap token (DWAVE_API_TOKEN) for real hardware.
 # Connection credentials are NOT accepted here. The token, solver, and region
@@ -115,6 +169,13 @@ data_dir = "/data/attempts"
 
 
 # --- Removed in v0.3 -------------------------------------------------------
+#
+# [gpu] was a global GPU table in v0.1 and v0.2, holding `yielding` and
+# `utilization` for every device at once. The v0.3 coordinator reads only
+# [cpu], [cuda.N], [metal], and [dwave]/[qpu], so a [gpu] table has no effect.
+# `make updateconfig` preserves it verbatim rather than deleting it, so an
+# upgraded config can carry a `yielding = true` that does nothing. Move the
+# keys into each [cuda.N] section and delete [gpu].
 #
 # [miner].rest_host and [miner].rest_port configured the REST surface in v0.2.
 # v0.3 replaced them with [dashboard].listen above. The v0.3 coordinator names
