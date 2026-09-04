@@ -41,7 +41,6 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | `tests/test_upgrade_config.py` | 34 pytest cases against `scripts/upgrade-config.py`. |
 | `cron.sh` | Auto-update sidecar (hourly cron) — detects running profiles from container names, pulls + recreates only on digest change. |
 | `Makefile` | Operator entry points: `make testnet`, `make localdev`, `make updateconfig`, etc. |
-| `channels.yml` | Release-channel image tables. The ONLY file allowed to contain a container tag literal. `CHANNEL` picks a column; `docker-compose.yml` reaches it via `extends`. |
 | `env.example` | Template for `.env`. Read alongside `docker-compose.yml` to see all defaults. |
 | `CHANGELOG.md` | Operator-facing release notes — same v0.2 changes documented here, but framed as "what changes" rather than "how the agent should reason." |
 | `docs/testnet-deployment.md` | Bootnode operator runbook (libp2p key, BABE/GRANDPA session keys, ports). |

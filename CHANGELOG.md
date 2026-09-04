@@ -2,31 +2,27 @@
 
 ## Unreleased
 
-### CHANNEL selects the image set
+### CHANNEL selects the image tag
 
-`CHANNEL` in `.env` picks which tags the stack runs. It defaults to `BETA`, so
-a fresh clone with no `.env` at all runs Aglais.
+`CHANNEL` in `.env` names the tag every image is pulled at. It defaults to
+`beta`, so a fresh clone with no `.env` at all runs Aglais.
 
-- `BETA` is Aglais, the live Quip test network (runtime spec 117).
-- `PROD` is the RETIRED testnet line (runtime spec 116). A PROD stack cannot
-  join Aglais; it joins the older network, which still runs in parallel. It is
-  not "the stable half of Aglais", and the docs say so in those words.
-- Lowercase (`beta` / `prod`) is aliased. A bad value fails fast -- and note it
-  breaks `docker compose down` and `logs` too, not only `up`, so the aliases
-  are there to stop a typo locking an operator out of stopping their own stack.
+- `beta` is Aglais, the live Quip test network (runtime spec 117).
+- `stable` is the RETIRED testnet line (runtime spec 116). A stable stack
+  cannot join Aglais; it joins the older network, which still runs in
+  parallel. It is not "the stable half of Aglais", and the docs say so in
+  those words.
 - Per-image `QUIP_*_TAG` pins still override the channel, independently per
   image, and remain unset by default.
 
-The mechanism is compose's `extends:` with an interpolated `service:` key,
-which is the one construct in compose v5.5.0 that branches on a variable's
-VALUE rather than on unset-ness. A nested `${A:-${B:-C}}` chain cannot do it,
-and a dynamic variable name (`${QUIP_MINER_TAG_${CHANNEL}}`) is a hard parse
-error that aborts the whole file.
+Each image now publishes moving `beta` and `stable` tags alongside its
+immutable version tags, so `CHANNEL` substitutes straight into the image
+reference: `image: <repo>:${QUIP_MINER_TAG:-${CHANNEL:-beta}}`. No table and no
+indirection. `make show-channel` answers "what will I actually pull", which
+matters more now that the reference names a moving tag rather than a version.
 
-New file `channels.yml` holds the tables and is the only file in the repo
-allowed to contain a tag literal. Seven tag claims across README, env.example
-and docs had already gone stale before it existed. All are corrected here, and
-`make show-channel` now answers "what will I actually pull" in one command.
+Seven tag claims across README, env.example and docs had gone stale. All are
+corrected here.
 
 ### Fixes found while doing the above
 
