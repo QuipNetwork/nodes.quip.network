@@ -6,12 +6,24 @@
 # the source of truth. Edit it and restart the miner.
 #
 # Use this file to look up a key, its default, and what it does. Copy the parts
-# you need into data/config.toml. Every key documented here is present in the
-# quip-miner v0.3 template or named by the coordinator itself; keys that only
-# existed in v0.2 are listed at the bottom under "Removed in v0.3".
+# you need into data/config.toml. Every key documented here is read by the v0.3
+# coordinator or by a mining backend it supervises. Keys that only existed in
+# v0.2 are listed at the bottom under "Removed in v0.3".
 #
 # Upgrading an older config? Run `make updateconfig`, which rewrites a v0.1 or
 # v0.2 config in place and backs up the original.
+#
+# The coordinator reads this file once, at startup. There is no reload signal,
+# so every change needs a restart.
+#
+# How a bad key behaves depends on where it sits. The coordinator parses the
+# whole document as a generic table and pulls keys out by name, so an unknown
+# or misspelled key under [miner] or [dashboard] is ignored without a word, and
+# a wrong type reads as the default without a word. A misspelled key inside a
+# backend section is passed to the backend, which logs
+# "config: unknown field 'X' for <backend> (ignored)". When a key seems to do
+# nothing, check the miner log for that line first, then check the spelling.
+
 
 [miner]
 
@@ -19,7 +31,10 @@
 # Default when unset: both entries below. The first is the validator that
 # docker-compose.yml runs beside the miner; the second is a fallback for a
 # validator reachable on the host network. Leave this alone unless the miner
-# runs on a host with no local validator.
+# runs on a host with no local validator. Only the first 8 entries reach the
+# on-chain node descriptor. An empty array is honored as written, and the
+# coordinator then exits after funding_timeout_s because every chain read
+# fails.
 validators = ["ws://quip-validator:9944", "ws://127.0.0.1:9944"]
 
 # Faucet used to auto-fund the miner account at startup. A miner that cannot
@@ -30,8 +45,11 @@ validators = ["ws://quip-validator:9944", "ws://127.0.0.1:9944"]
 # auto-funding and fund the account yourself.
 faucet_url = "https://faucet.aglais.quip.network"
 
-# Funding thresholds, in plancks. Shown with their defaults; uncomment to change.
+# Funding thresholds, in plancks, shown with their defaults. Uncomment to
+# change one.
 # Below min_balance_plancks the coordinator asks the faucet for a top-up.
+# A top-up smaller than the gap keeps the funding loop calling the faucet until
+# funding_timeout_s expires, and then startup aborts.
 # min_balance_plancks = 2000000000000      # 2 UNIT
 # faucet_top_up_plancks = 10000000000000   # 10 UNIT
 # funding_timeout_s = 600                  # give up after this long
@@ -46,6 +64,13 @@ faucet_url = "https://faucet.aglais.quip.network"
 # exactly this path on first run when the file is missing. Mount your own over
 # /data/keystore.json to bring an existing key.
 #
+# Four value forms are accepted, in this order: a path to a keystore JSON file,
+# a 64-character hex seed with or without the 0x prefix, a substrate secret URI
+# such as //Alice, and a bare BIP39 mnemonic. A value that loads as none of
+# these only logs a warning. The coordinator then runs on an all-zero account,
+# mines normally, and fails every on-chain submission, so read the startup log
+# rather than assuming a typo would stop the process.
+#
 # BACK THIS UP. The chain account lives here, and it cannot be recovered.
 #
 # Note the `ss58` field inside keystore.json is stale H3 metadata and is not
@@ -55,13 +80,34 @@ signer_key = "/data/keystore.json"
 
 # How peers reach this node from outside the host. Both are required, and an
 # empty string is not a host. This is the public front door, not the validator
-# peer port (9944) and not the dashboard port (9090).
+# peer port (9944) and not the dashboard port (9090). A missing or zero value
+# is the one hard failure in this section: the coordinator exits 64.
 public_host = "203.0.113.10"
 public_port = 20050
 
-# Display name on telemetry. Carried over by `make updateconfig` from older
-# configs. It is not in the upstream v0.3 template, so treat it as cosmetic.
+# The four keys below only populate the on-chain node descriptor, which is what
+# the network view and telemetry display. None of them changes how this process
+# mines.
+#
+# node_name is the display name, and it is the key that decides whether a
+# descriptor is filed at all. Without it the miner works normally but never
+# appears in the network view. `make updateconfig` carries it over from older
+# configs. Limit 64 bytes.
 # node_name = "my-node"
+#
+# node_id defaults to the 64-character lowercase hex of the miner account,
+# which is the right answer for almost every operator. Limit 64 bytes.
+# node_id = "0f1e..."
+#
+# auto_mine is descriptor metadata only. Setting it false does not stop this
+# coordinator from mining.
+# auto_mine = true
+#
+# log_level is the level ADVERTISED in the descriptor, not this process's own
+# verbosity. Set real verbosity with the --log-level flag or RUST_LOG. Accepted
+# values are debug, trace, warn, warning, and error. Anything else, a typo
+# included, silently reads as info.
+# log_level = "info"
 
 
 # --- Mining backend: at least one section is required ----------------------
@@ -74,9 +120,18 @@ public_port = 20050
 [cpu]
 binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 
+# num_cpus is the CPU limiter, and it is the only one this backend has. See
+# "Limiting CPU use" below.
+# num_cpus = 6
+
 # CUDA miner, one section per GPU index. Provided by the cuda image, which the
 # `cuda` compose profile selects. The keys must sit in the numbered subtable.
 # The coordinator ignores a key written under a bare [cuda], and says nothing.
+#
+# The number is a label, not a device selector. [cuda.1] names the miner
+# `cuda-1` and still runs on GPU 0, because the device index is a command-line
+# flag that the coordinator never passes. A `device` key here is an unknown
+# field. Selecting a GPU needs CUDA_VISIBLE_DEVICES on the container.
 # [cuda.0]
 # binary = "quip-cuda-sa"
 # utilization = 100        # governor ceiling, 1-100. See "GPU yielding" below.
@@ -85,10 +140,66 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 # Apple Metal miner, one device. macOS-only, and no container image carries it,
 # so this section does nothing under docker compose. This file documents it
 # because the coordinator accepts [metal] and node-manager runs it on macOS.
+# The Metal device index is command-line only, the same as CUDA above.
 # [metal]
 # binary = "quip-metal-sa"
 # utilization = 100
 # yielding = false
+
+
+# --- Keys every backend section accepts ------------------------------------
+#
+# The coordinator claims five keys from every backend section and forwards the
+# rest of the section to the miner process verbatim. The five, with defaults:
+#
+#   binary              per-section default, see each section above
+#   queue_depth = 3     outstanding jobs the coordinator hands the miner
+#   idle_timeout_s = 300  miner exits after this long with no job
+#   heartbeat_s = 15      miner keepalive interval
+#   reconnect_window_s = 60  grace period before a dropped miner is replaced
+#
+# Do not write a literal 0 for the four numbers. The miner reads 0 as "use the
+# default" while the coordinator forwards it as written and grants one job
+# credit, so the two sides disagree about the queue. Omit the key instead.
+#
+# queue_depth is also capped by the backend. A CPU, CUDA, or Metal miner
+# reduces it to its own stream width, so a value above that width has no
+# effect.
+#
+# num_sweeps is accepted in every backend section and defaults to 64. It is the
+# lowest-precedence source for that number: the per-job value wins, then the
+# chain difficulty target, then the backend's own adaptive estimate, and only
+# then this key. A miner attached to a chain with a difficulty target in force
+# never reads it. Under a Gibbs binary the resolved value is doubled.
+#
+# A wrong binary name is not retried. The coordinator logs "miner spawn failed"
+# and abandons that backend for the life of the process, so check the log after
+# changing `binary`.
+
+
+# --- Limiting CPU use ------------------------------------------------------
+#
+# num_cpus is the whole CPU limiter surface. The backend sets no thread
+# affinity, does not renice itself, does not sleep between jobs, and does not
+# measure host load. There is no CPU equivalent of the GPU governor below.
+#
+# Unset, the miner uses every core the host reports. A value above the host
+# core count is clamped down to it. A value of zero or below, and a section
+# that is not valid TOML, are both fatal: the miner prints a configuration
+# error and exits 64 during the handshake, before it serves a single job.
+#
+# num_cpus reaches only the quip-cpu-sa and quip-cpu-gibbs binaries. Point
+# `binary` at any other bundled CPU variant and the key is inert, without even
+# an unknown-field warning, and the miner runs at full host width.
+#
+# Under quip-cpu-gibbs the budget is divided among four parallel workers, so
+# the effective per-worker width is num_cpus/4, with a floor of 1. The worker
+# count is a command-line flag the coordinator does not pass, so four is fixed.
+# Budget for it: num_cpus = 4 under Gibbs is one core per worker.
+#
+# The value applies at the first job and is latched there. A later change needs
+# a restart to resize the running worker pool, even though the miner reports
+# the new width.
 
 
 # --- GPU yielding (cuda and metal) -----------------------------------------
@@ -96,13 +207,15 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 # `utilization` and `yielding` are the only governor keys the GPU backends
 # read. Put them in the backend section, once per [cuda.N] and once for
 # [metal]. utilization is a percent from 1 to 100 and defaults to 100.
-# yielding is a bool and defaults to false.
+# yielding is a bool and defaults to false. Values outside the range are
+# clamped, so 0 becomes 1 and 250 becomes 100.
 #
-# The coordinator claims five keys for itself (binary, queue_depth,
-# idle_timeout_s, heartbeat_s, reconnect_window_s) and forwards the rest of the
-# section to the miner process verbatim. A key the backend does not recognize
-# produces a warning in the miner log, not a startup failure. The
-# `--utilization` and `--yielding` command-line flags reach only the
+# Both backends discard the whole section when any value in it has the wrong
+# type. A valid `yielding` next to a quoted `utilization = "60"` is lost with
+# it, so check the type of every value in the table when a setting does not
+# take.
+#
+# The `--utilization` and `--yielding` command-line flags reach only the
 # `quip-coordinator drive` benchmark harness, so this file is the only route
 # for a running stack.
 #
@@ -115,8 +228,10 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 # it launched with until the session goes away. Per-process attribution needs
 # NVML support and a matching process id. Inside a container, or on WSL2, the
 # governor falls back to the device-wide figure and logs which method it used.
-# That fallback holds only while another process owns a context. A miner alone
-# on a GPU never throttles. With yielding = false the ceiling is never read.
+# That fallback over-counts, so a ceiling bites sooner under docker than the
+# numbers suggest. The fallback holds only while another process owns a
+# context. A miner alone on a GPU never throttles. With yielding = false the
+# ceiling is never read.
 #
 # Metal. The IOKit governor reads device-wide "Device Utilization %", which
 # counts the miner's own work. Two consequences follow. A low ceiling can make
@@ -133,23 +248,44 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 # the host and works under WSL2 and Docker Desktop. The two are independent,
 # and both may be on at once.
 
-# D-Wave QPU miner. Needs a Leap token (DWAVE_API_TOKEN) for real hardware.
-# Connection credentials are NOT accepted here. The token, solver, and region
-# come from D-Wave's own config: DWAVE_API_TOKEN, DWAVE_API_SOLVER, and
-# DWAVE_API_REGION in .env, or ~/.config/dwave/dwave.conf. Setting a solver
-# matters on a real QPU, because the SDK otherwise picks the account default,
-# which may not be the Advantage2 system the chain topology targets.
-# num_reads and anneal_time come from the chain difficulty target, not here.
+
+# --- D-Wave QPU miner ------------------------------------------------------
 #
-# The budget keys below meter QPU access time. The pool accrues at
-# daily_budget/86400 per wall-second; the miner idles until it reaches
-# min_block_budget, then bursts until the pool drains. Durations take s/m/h/d/w
-# suffixes or a plain number of seconds.
+# Needs a Leap token (DWAVE_API_TOKEN) for real hardware. Connection
+# credentials are NOT accepted here. The token, solver, and region come from
+# D-Wave's own config: DWAVE_API_TOKEN, DWAVE_API_SOLVER, and DWAVE_API_REGION
+# in .env, or ~/.config/dwave/dwave.conf. Setting a solver matters on a real
+# QPU, because the SDK otherwise picks the account default, which may not be
+# the Advantage2 system the chain topology targets.
+#
+# The keys below meter QPU access time. The pool accrues at daily_budget/86400
+# per wall-second. The miner idles until it reaches min_block_budget, then
+# bursts until the pool drains.
+#
+# Durations accept a number of seconds, or a string with an s, m, h, d, or w
+# suffix. Compound forms such as "1h30m" and millisecond forms such as "500ms"
+# are not accepted, and a value the parser rejects kills the miner process with
+# exit 70 rather than warning. Every key also has a <name>_seconds alias.
+#
+# Omit daily_budget and the budget gate does not exist: the miner accepts every
+# job with no QPU-time limit. A value of 0 has the same effect, because zero
+# reads as unset. The budget is built from the first configure message only,
+# so a later change needs a restart.
 # [dwave]
 # binary = "quip-dwave-qa"
 # daily_budget = "30s"      # QPU access time granted per day
 # min_block_budget = "90s"  # start threshold; default min(90s, daily_budget)
-# budget_cap = "5m"         # max pool size; default uncapped
+# budget_cap = "5m"         # max pool size; default max(daily, min_block)
+# initial_budget = "min"    # pool at startup; also "daily", "cap", or a
+#                           # duration. Defaults to min_block_budget so a
+#                           # fresh process can mine at once.
+#
+# Set min_block_budget above daily_budget and the miner accrues for days before
+# it can spend once. Keep the threshold at or below the daily grant.
+#
+# num_reads and anneal_time_us are accepted in this section and never read.
+# Both come from the chain difficulty target. They exist in the known-key list
+# only so they do not warn, which also means a typo near them goes unreported.
 
 
 # --- Mining-attempt dashboard and indexer REST surface ---------------------
@@ -163,6 +299,11 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 # keeps the two in sync. Change one and you must change the other. Keep
 # data_dir under the mounted /data volume so history survives restarts. Omit
 # the whole section to disable.
+#
+# Both keys are required once the section exists. A listen address that fails
+# to bind only logs a warning, so a port collision leaves a running coordinator
+# with no dashboard and no failure exit. Everything under data_dir is served as
+# static files at the listen address, so put nothing private there.
 [dashboard]
 listen = "0.0.0.0:8086"
 data_dir = "/data/attempts"
@@ -177,7 +318,14 @@ data_dir = "/data/attempts"
 # upgraded config can carry a `yielding = true` that does nothing. Move the
 # keys into each [cuda.N] section and delete [gpu].
 #
+# The same applies to every other legacy backend table `make updateconfig`
+# carries forward: [nvidia], [modal], [ibm], [braket], [pasqal], [ionq], and
+# [origin]. The v0.3 coordinator reads none of them. Delete them.
+#
 # [miner].rest_host and [miner].rest_port configured the REST surface in v0.2.
 # v0.3 replaced them with [dashboard].listen above. The v0.3 coordinator names
 # these keys when it rejects a v0.2 config, so delete them rather than leaving
 # them in place. `make updateconfig` folds them into [dashboard].listen for you.
+#
+# [miner].node_log came from a v0.1 [global] table and `make updateconfig`
+# promotes it into [miner]. Nothing reads it. Delete it.
