@@ -8,7 +8,7 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 
 | Item | Value |
 |---|---|
-| Image | The tag the `BETA` channel selects (see `channels.yml`, or run `make show-channel`). `latest` is pre-Aglais. |
+| Image | The `beta` tag, or run `make show-channel` to resolve it. `latest` is pre-Aglais. |
 | Chain spec | `chain-specs/aglais-network.json` (committed; same file every operator uses) |
 | Base path | `data/aglais-chain-db` (mounted at `/data` in the validator container) |
 | Compose v2.20+ | required for `depends_on.required: false` |
