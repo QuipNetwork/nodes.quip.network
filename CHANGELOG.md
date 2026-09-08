@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.3.0
+
+The Aglais line leaves release-candidate status. v0.3.0 carries the stack that
+`v0.3.0-rc1` shipped, plus `CHANNEL` image-tag selection, new image tag
+defaults, and the documentation corrections below.
+
+The word "stable" has two meanings here, and they do not refer to the same
+thing. This git tag is the stable cut of the compose stack. `CHANNEL=stable`
+still names the image set for the RETIRED testnet, runtime spec 116. `CHANNEL`
+keeps its default of `beta`, so an upgrade to v0.3.0 keeps an operator on
+Aglais. Set `CHANNEL=stable` only to join the older network.
 
 ### CHANNEL selects the image tag
 
