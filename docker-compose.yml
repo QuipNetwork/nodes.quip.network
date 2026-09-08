@@ -222,15 +222,13 @@ services:
   # Inbound 30333/tcp and 30333/udp must be reachable from the public internet
   # for libp2p peering.
   quip-validator:
-    # Not driven by CHANNEL. quip-network-node:stable still resolves to
-    # v0.2.2, the retired testnet build (runtime spec 116), which cannot run
-    # the Aglais runtime 117 genesis. The miner images moved their `stable`
-    # tag to the v0.3 Aglais line; this one has not. Until it does, the
-    # validator default names an explicit Aglais tag, so CHANNEL=stable brings
-    # up an Aglais stack instead of a spec-116 validator under spec-117
-    # miners. Restore ${CHANNEL:-beta} here once quip-network-node:stable
-    # points at v0.3. QUIP_VALIDATOR_TAG still overrides either way.
-    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-v0.3.0-rc1}
+    # On CHANNEL like every other image. quip-network-node:stable now names
+    # the v0.3 Aglais line, so CHANNEL=stable no longer resolves to the
+    # retired v0.2.2 build (runtime spec 116) that cannot run the runtime 117
+    # genesis. This repo published an explicit pin here while that upstream
+    # tag lagged. `latest` is still pre-Aglais and is not a release pointer:
+    # do not name it. QUIP_VALIDATOR_TAG overrides CHANNEL.
+    image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-${CHANNEL:-beta}}
     pull_policy: always
     container_name: quip-validator
     restart: unless-stopped

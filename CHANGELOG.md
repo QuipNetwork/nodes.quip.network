@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### The validator is back on CHANNEL
+
+`quip-network-node:stable` now names the v0.3 Aglais line, so the explicit
+`v0.3.0-rc1` that v0.3.1 published on the validator image reference is no
+longer needed. The reference is `${QUIP_VALIDATOR_TAG:-${CHANNEL:-beta}}`
+again, matching every other image in the stack.
+
+The validator publishes no non-rc v0.3 build yet, so its `stable` and `beta`
+resolve to the same Aglais image until one exists. That is a narrower claim
+than the miner images, where `stable` names `v0.3.0` and `beta` runs ahead of
+it. `make show-channel` prints what each service resolves to.
+
+`latest` is unchanged and still pre-Aglais. It is not maintained as a release
+pointer for any image in this stack, and the documentation now says not to
+name it rather than describing what it happens to point at.
+
 ## v0.3.1
 
 `CHANNEL=stable` runs Aglais. Both channels join the same network and differ
