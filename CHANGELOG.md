@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.4.0
+
+`CHANNEL=stable` now runs Aglais. Both channels join the same network and
+differ only in how far ahead of the release line they sit: `stable` is the
+released line, `beta` the prerelease line ahead of it. v0.3.0 described
+`stable` as the retired testnet, which was true when it was written. Upstream
+has since moved the miner images' `stable` tag to the v0.3 Aglais line.
+
+An operator on `CHANNEL=stable` who upgrades to v0.4.0 moves from the retired
+testnet to Aglais. That is the intended change, and it is not
+reversible by staying on this release: the retired testnet no longer has a
+channel. To stay on it, pin every `QUIP_*_TAG` to a v0.2 version by hand.
+
+### The validator is not on CHANNEL
+
+`quip-network-node:stable` still resolves to `v0.2.2`, the retired build
+(runtime spec 116). Left on `CHANNEL`, `CHANNEL=stable` would bring up a
+spec-116 validator underneath spec-117 miners, against the Aglais chain spec.
+
+The validator image reference names an explicit Aglais tag,
+`v0.3.0-rc1`, rather than the tag `CHANNEL` selects. `QUIP_VALIDATOR_TAG`
+still overrides it. Restore `${CHANNEL:-beta}` on that line once the upstream
+tag moves to the v0.3 line. `make show-channel` reports what each service
+resolves to, including this one.
+
+### The first-run miner template carries every valid key
+
+`config/quip-miner.toml` is the template the image copies to
+`data/config.toml` on first run, so it is the file an operator edits. It
+documented none of the keys that `config/config.example.toml` gained in
+v0.3.0. Every key the coordinator and the miners accept is now present there,
+commented out, with a one-line note:
+
+- `num_cpus`, the CPU limiter
+- the `[cuda.N]` and `[metal]` governor keys, `utilization` and `yielding`
+- the five keys every backend section accepts, and the rule against writing a
+  literal 0 for the four numbers among them
+- the node-descriptor keys `node_name`, `node_id`, `auto_mine`, `log_level`
+- the D-Wave budget keys, including `initial_budget`
+
+The active values are unchanged. The `[dashboard]` comment claimed port 20100
+while the value said 8086, and now says 8086.
+
+### Corrected tag claims
+
+- `env.example` said an unpinned faucet tracks `latest`. It tracks the tag
+  `CHANNEL` names. The faucet image publishes no version tags at all, only
+  channel and commit-SHA tags.
+- `env.example` said the miner's `latest` predates Aglais. It resolves to a
+  prerelease build on the Aglais line. Either way it is not a release
+  pointer, and the cuda image publishes no `latest` tag, so the text now says
+  not to use it.
+- The `docker-compose.yml` comment above the validator claimed the image was
+  pinned. It had not been pinned since `CHANNEL` landed. It is pinned now,
+  and the comment says why.
+
 ## v0.3.0
 
 The Aglais line leaves release-candidate status. v0.3.0 carries the stack that
