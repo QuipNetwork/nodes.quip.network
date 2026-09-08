@@ -6,15 +6,28 @@
 # /api/v1/* to quip-miner:8086. Leaving upstream's port here would seed a fresh
 # operator with a REST surface Caddy cannot reach. docker-compose.yml mounts
 # this file over the image's /app/config.toml, and the image entrypoint copies
-# it to /data/config.toml on first run; after that /data/config.toml is the
+# it to /data/config.toml on first run. After that /data/config.toml is the
 # source of truth (edit + restart). Drop this mount once the upstream template
 # carries the Aglais faucet. The coordinator connects to a chain via
 # [miner].validators, then supervises the miner processes declared below —
 # each backend section maps to a downloaded binary (see the image's
 # /usr/local/bin). `binary` selects the sa vs chromatic-gibbs variant.
+#
+# Every key the coordinator and the miners accept is commented out below with
+# a one-line note. config/config.example.toml in this repo carries the full
+# reference: precedence rules, failure behavior, and the traps. Read it before
+# you change anything here that is not obvious.
+#
+# The coordinator reads this file once, at startup. There is no reload signal,
+# so every change needs a restart. An unknown or misspelled key under [miner]
+# or [dashboard] is ignored in silence. The same mistake inside a backend
+# section is reported by the miner as
+# "config: unknown field 'X' for <backend> (ignored)".
 
 [miner]
-# Ordered chain endpoints; live-rotated on disconnect.
+# Ordered chain endpoints; live-rotated on disconnect. At most 8 entries reach
+# the on-chain descriptor. An empty array makes the coordinator exit after
+# funding_timeout_s.
 validators = ["ws://quip-validator:9944", "ws://127.0.0.1:9944"]
 # Faucet for auto-funding the miner account at startup. A miner that cannot pay
 # transaction fees mines normally and then fails every submit, so the
@@ -42,7 +55,7 @@ faucet_url = "https://faucet.aglais.quip.network"
 # exactly this path on first run when the file is missing, so a bare
 # `docker run` produces a miner whose proofs verify. Mount your own keystore
 # over /data/keystore.json to bring an existing key. BACK IT UP — the chain
-# key lives here.
+# key lives here. A value the coordinator cannot read only warns.
 signer_key = "/data/keystore.json"
 
 # Host a peer uses to reach this node from outside the host. Required.
@@ -53,9 +66,56 @@ public_host = "203.0.113.10"
 # not the dashboard port (9090). Zero is not a valid port.
 public_port = 20050
 
+# The four keys below only populate the on-chain node descriptor, which is what
+# the network view and telemetry display. None of them changes how this process
+# mines.
+# node_name = "my-node"   # without it, NO descriptor is filed at all
+# node_id = "0f1e..."     # defaults to 64-char hex of the miner account
+# auto_mine = true        # descriptor metadata only
+# log_level = "info"      # ADVERTISED level, not this process's verbosity
+
+# --- Mining backends: at least one section is required -----------------------
+#
+# Every backend section also accepts these five, which the coordinator claims
+# and does not forward. Defaults shown. Never write a literal 0 for the four
+# numbers: the miner reads 0 as "use the default" while the coordinator
+# forwards it as written, and the two sides then disagree about the queue.
+#   queue_depth = 3          outstanding jobs handed to the miner
+#   idle_timeout_s = 300     miner exits after this long with no job
+#   heartbeat_s = 15         miner keepalive interval
+#   reconnect_window_s = 60  grace before a dropped miner is replaced
+# num_sweeps = 64 is accepted everywhere and is the lowest-precedence source
+# for that number, so a miner on a chain with a difficulty target never reads
+# it. A wrong `binary` name is abandoned without retry — check the log.
+
 # CPU miner (bundled: quip-cpu-sa, quip-cpu-gibbs).
 [cpu]
 binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
+
+# num_cpus is the whole CPU limiter. Unset means every core the host reports.
+# A value above the host core count is clamped down. Zero or below is fatal:
+# the miner exits 64 during the handshake. It reaches only quip-cpu-sa and
+# quip-cpu-gibbs. Under quip-cpu-gibbs the budget is split among four fixed
+# workers, so the per-worker width is num_cpus/4 with a floor of 1. The value
+# is latched at the first job, so a change needs a restart.
+# num_cpus = 6
+
+# NVIDIA CUDA miner. The number is a label, not a device selector: [cuda.1]
+# names the miner `cuda-1` and still runs on GPU 0. Select a GPU with
+# CUDA_VISIBLE_DEVICES on the container.
+# [cuda.0]
+# binary = "quip-cuda-sa"
+# utilization = 100        # governor ceiling, 1-100
+# yielding = false         # share the GPU with other processes
+
+# Apple Metal miner. Same two governor keys as cuda.
+# [metal]
+# binary = "quip-metal-sa"
+# utilization = 100
+# yielding = false
+#
+# One wrong-typed value in either table discards the whole table in silence,
+# so the governor reverts to its defaults. See config.example.toml.
 
 # D-Wave QPU miner (bundled Python entry point quip-dwave-qa). Needs a Leap
 # token (DWAVE_API_TOKEN) for real hardware; omit the section to disable.
@@ -64,23 +124,31 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 #
 # Keys below tune the QPU-access-time budget the miner spends. The pool accrues
 # at daily_budget/86400 per wall-second; the miner idles until it reaches
-# min_block_budget, then bursts until the pool drains. Durations accept
-# s/m/h/d/w suffixes or a plain number of seconds. num_reads/anneal_time come
-# from the chain difficulty target (SetTarget), not this section.
+# min_block_budget, then bursts until the pool drains. Durations take a plain
+# number of seconds or an s/m/h/d/w suffix. Compound forms such as "1h30m" and
+# millisecond forms such as "500ms" are rejected, and a rejected duration kills
+# the miner with exit 70. Every key also has a <name>_seconds alias. Omitting
+# daily_budget, or setting it to 0, removes the gate entirely. The budget is
+# built from the first configure message only, so a change needs a restart.
+# num_reads and anneal_time_us are accepted here and never read: both come from
+# the chain difficulty target (SetTarget).
 # [dwave]
 # binary = "quip-dwave-qa"
 # daily_budget = "30s"      # QPU access time granted per day
 # min_block_budget = "90s"  # start threshold; default min(90s, daily_budget)
-# budget_cap = "5m"         # max pool size; default uncapped
+# budget_cap = "5m"         # max pool size; default max(daily, min_block)
+# initial_budget = "min"    # pool at startup; also "daily", "cap", or a
+#                           # duration. Defaults to min_block_budget.
 
 # Mining-attempt dashboard and indexer REST surface. Records every solved
 # model as JSONL under data_dir/<qblock_id>/attempts.jsonl and serves:
 #   GET /healthz, GET /qblocks, GET /<qblock_id>/attempts.jsonl
 #   GET /api/v1/status, GET /api/v1/stats, GET /api/v1/mining/attempts
-# Listen on 0.0.0.0:20100 so host.docker.internal:20100 matches the Caddy
-# reverse_proxy for /api/v1/* (see
+# Listen on 0.0.0.0:8086 so the Caddy reverse_proxy for /api/v1/* matches (see
 # caddy/Caddyfile in this repo). Use the mounted /data volume so history
-# survives restarts. Omit the section to disable.
+# survives restarts. Omit the section to disable. Both keys are required, and a
+# bind that fails only warns. data_dir is served as a static web root, so put
+# nothing private there.
 [dashboard]
 listen = "0.0.0.0:8086"
 data_dir = "/data/attempts"
