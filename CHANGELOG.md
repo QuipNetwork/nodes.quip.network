@@ -1,16 +1,14 @@
 # Changelog
 
-## v0.4.0
+## v0.3.1
 
-`CHANNEL=stable` now runs Aglais. Both channels join the same network and
-differ only in how far ahead of the release line they sit: `stable` is the
-released line, `beta` the prerelease line ahead of it. v0.3.0 described
-`stable` as the retired testnet, which was true when it was written. Upstream
-has since moved the miner images' `stable` tag to the v0.3 Aglais line.
+`CHANNEL=stable` runs Aglais. Both channels join the same network and differ
+only in how far ahead of the release line they sit: `stable` is the released
+line, `beta` the prerelease line ahead of it. This is the behavior v0.3.0 was
+meant to ship. Its notes described `stable` as the retired testnet, which was
+never the intent, and the tags now match the intent.
 
-An operator on `CHANNEL=stable` who upgrades to v0.4.0 moves from the retired
-testnet to Aglais. That is the intended change, and it is not
-reversible by staying on this release: the retired testnet no longer has a
+An operator on `CHANNEL=stable` runs Aglais. The retired testnet has no
 channel. To stay on it, pin every `QUIP_*_TAG` to a v0.2 version by hand.
 
 ### The validator is not on CHANNEL
@@ -62,11 +60,9 @@ The Aglais line leaves release-candidate status. v0.3.0 carries the stack that
 `v0.3.0-rc1` shipped, plus `CHANNEL` image-tag selection, new image tag
 defaults, and the documentation corrections below.
 
-The word "stable" has two meanings here, and they do not refer to the same
-thing. This git tag is the stable cut of the compose stack. `CHANNEL=stable`
-still names the image set for the RETIRED testnet, runtime spec 116. `CHANNEL`
-keeps its default of `beta`, so an upgrade to v0.3.0 keeps an operator on
-Aglais. Set `CHANNEL=stable` only to join the older network.
+This git tag is the stable cut of the compose stack. The note published here
+described `CHANNEL=stable` as the retired testnet, runtime spec 116. That was
+never the intent. v0.3.1 corrects it: both channels run Aglais.
 
 ### CHANNEL selects the image tag
 
