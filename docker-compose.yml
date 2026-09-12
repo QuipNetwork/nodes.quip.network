@@ -10,18 +10,27 @@ x-runtime-user: &runtime-user
   PUID: ${PUID:-1000}
   PGID: ${PGID:-1000}
 
-# Bounded container logs, applied to every long-lived service. Docker's
-# json-file default has NO max-size, so a node left running accumulates an
-# unbounded log for the life of the container — the miner is the worst
-# offender, and on WSL2 the growing file degrades host I/O well before the
-# disk fills. Capping at max-size x max-file per service bounds the total.
-# Raise QUIP_LOG_MAX_SIZE when you need deeper history for an incident.
+# Every long-lived service forwards stdout to the colocated quip-syslog
+# collector, which merges all of them into one host-readable file at
+# data/logs/quip-node.log. This replaces the per-container json-file logs,
+# which died with the container on every Watchtower update.
+#
+# `docker compose logs` and `docker logs` still work: Docker keeps a local
+# ring-buffer cache alongside any non-readable driver (dual logging), sized by
+# cache-max-size / cache-max-file below. Do NOT set cache-disabled.
+#
+# The address is a HOST address. The Docker daemon opens this socket, not the
+# container, so the compose network name quip-syslog would not resolve.
 x-logging: &default-logging
-  driver: json-file
+  driver: syslog
   options:
-    max-size: ${QUIP_LOG_MAX_SIZE:-32m}
-    # Quoted: docker rejects max-file as a bare int.
-    max-file: "${QUIP_LOG_MAX_FILE:-5}"
+    syslog-address: "udp://127.0.0.1:5514"
+    # Container name becomes the PROGRAM field, which is the per-line prefix
+    # in the merged file. Without it every line is tagged with a container id.
+    tag: "{{.Name}}"
+    cache-max-size: ${QUIP_LOG_MAX_SIZE:-32m}
+    # Quoted: docker rejects cache-max-file as a bare int.
+    cache-max-file: "${QUIP_LOG_MAX_FILE:-5}"
 
 # Shared dashboard configuration. The dashboard is always present alongside
 # every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
@@ -397,6 +406,46 @@ services:
           - quip-caddy
     depends_on:
       - dashboard
+
+  # Merged log collector. Receives every service's stdout through the Docker
+  # syslog driver and writes one file to data/logs/quip-node.log.
+  #
+  # This service deliberately does NOT use *default-logging: pointing the
+  # collector's own driver at the collector is a feedback loop. It stays on
+  # json-file so its startup errors remain visible in `docker compose logs`.
+  quip-syslog:
+    image: linuxserver/syslog-ng:latest
+    pull_policy: always
+    container_name: quip-syslog
+    restart: unless-stopped
+    profiles:
+      - cpu
+      - cuda
+      - faucet
+    environment:
+      <<: *runtime-user
+      # Rotation, matching the v0.1 miner: 10MB x 5. The supervisor checks the
+      # size every QUIP_LOG_CHECK_INTERVAL seconds, so the file can overshoot
+      # by one interval's worth of output before it rotates.
+      QUIP_LOG_MAX_BYTES: ${QUIP_LOG_MAX_BYTES:-10485760}
+      QUIP_LOG_KEEP: ${QUIP_LOG_KEEP:-5}
+      QUIP_LOG_CHECK_INTERVAL: ${QUIP_LOG_CHECK_INTERVAL:-30}
+    logging:
+      driver: json-file
+      options:
+        max-size: 8m
+        max-file: "2"
+    ports:
+      # Loopback only. The daemon reaches this from the host; nothing off-box
+      # should be able to inject lines into the operator's log.
+      - "127.0.0.1:5514:5514/udp"
+    volumes:
+      - ./syslog-ng/syslog-ng.conf:/config/syslog-ng.conf:ro
+      - ./syslog-ng/entrypoint.sh:/entrypoint.sh:ro
+      - ./data/logs:/logs
+    # This override bypasses the image's s6 supervisor, so crond does not run.
+    # entrypoint.sh supervises syslog-ng and handles rotation itself.
+    entrypoint: ["/entrypoint.sh"]
 
 volumes:
   # Renamed from quip-pgdata at the Aglais relaunch. The dashboard indexer

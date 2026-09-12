@@ -61,3 +61,26 @@ def test_entrypoint_handles_sigterm_without_blocking_on_sleep():
     assert "trap" in text
     # The stop function must kill the backgrounded sleep, not just RUNNING.
     assert 'kill "$SLP"' in text, "stop must kill the sleep PID to unblock wait"
+
+
+def _compose_config():
+    """Ask compose to resolve the file, rather than parsing YAML anchors by hand."""
+    result = subprocess.run(
+        ["docker", "compose", "--profile", "cuda", "--profile", "faucet", "config"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def test_every_service_uses_the_syslog_driver():
+    config = _compose_config()
+    assert config.count("driver: syslog") >= 7, "all seven services must inherit the anchor"
+    assert "syslog-address: udp://127.0.0.1:5514" in config
+    assert "tag: '{{.Name}}'" in config or 'tag: "{{.Name}}"' in config
+
+
+def test_collector_publishes_on_loopback_only():
+    config = _compose_config()
+    assert "127.0.0.1" in config, "collector port must not bind all interfaces"
+    assert "quip-syslog" in config
