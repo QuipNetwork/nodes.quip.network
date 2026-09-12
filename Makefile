@@ -50,7 +50,7 @@ help:
 	@echo "                            (use when the host has Python < 3.11)."
 	@echo "  make pull              Pull images for PROFILE"
 	@echo "  make down              Tear down both profile sets"
-	@echo "  make logs              Tail validator + miner logs"
+	@echo "  make logs              Tail merged stack log (data/logs/quip-node.log)"
 	@echo "  make clean-chain       Wipe data/aglais-chain-db/chains"
 	@echo "  make clean             Full reset: down + wipe chain, pgdata volume, dashboard-data"
 	@echo ""
@@ -175,7 +175,7 @@ down:
 
 logs:
 	@if [ -f data/logs/quip-node.log ]; then \
-	    tail -f -n 200 data/logs/quip-node.log; \
+	    tail -F -n 200 data/logs/quip-node.log; \
 	else \
 	    echo "data/logs/quip-node.log not present yet; falling back to compose logs"; \
 	    $(COMPOSE) logs -f --tail=50; \

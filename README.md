@@ -536,18 +536,28 @@ docker compose --profile cpu up -d --force-recreate
 
 ## Logs
 
-Every service writes to one merged file, `data/logs/quip-node.log`. Each line carries the container name, so one `tail` shows the whole stack:
+Every service except the collector writes to one merged file, `data/logs/quip-node.log`. Each line carries the container name, so one `tail` shows the whole stack:
 
     make logs
 
+This tails the merged file with a 200-line window. If the file does not exist yet (first boot), it falls back to `docker compose logs -f --tail=50` across the whole project. The collector logs to stdout via json-file and reaches the merged stream through the syslog driver; read collector errors with `docker compose logs quip-syslog`.
+
 The collector rotates the file at 10 MB and keeps 5 generations, the same as the v0.1 miner did. `docker compose logs` also still works, served from Docker's local cache rather than from the file.
 
-Logs from v0.1, which the miner wrote itself, are in `data/logs/archive-v0.1/`.
+**Known limitation:** the fallback branch uses `$(COMPOSE)`, not `$(COMPOSE_LOCALDEV)`, so a localdev operator whose merged file does not exist yet sees the testnet project logs. Once the file exists both stacks are correct, because both bind `./data/logs`.
+
+If you have v0.1 logs, move any existing `data/logs/quip-node.log*` files into `data/logs/archive-v0.1/` before first start. The rotation would otherwise interleave stale v0.1 miner output with new merged output. Use these commands:
+
+```bash
+mkdir -p data/logs/archive-v0.1
+mv data/logs/quip-node.log* data/logs/archive-v0.1/ 2>/dev/null || true
+```
 
 ## Maintenance
 
 | Task | Command |
 |------|---------|
+| View merged stack log | `make logs` |
 | View miner logs | `docker compose logs -f cpu` (or `cuda`) |
 | View validator logs | `docker compose logs -f quip-validator` |
 | View faucet logs | `docker compose logs -f quip-faucet` |
@@ -558,6 +568,8 @@ Logs from v0.1, which the miner wrote itself, are in `data/logs/archive-v0.1/`.
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
 | Force pull and redeploy | `docker compose pull cpu && docker compose up -d cpu` |
 | Stop everything | `docker compose --profile cpu --profile faucet down` |
+
+Changing `QUIP_LOG_MAX_BYTES` or `QUIP_LOG_KEEP` requires a container recreate, the same as changes to the cache size vars. Use `docker compose --profile cpu up -d --force-recreate` (or `cuda`).
 
 ## Files
 
