@@ -546,6 +546,8 @@ The collector rotates the file at 10 MB and keeps 5 generations, the same as the
 
 **Known limitation:** before the merged file exists, `make logs` on a localdev stack falls back to the testnet project's container logs. Once the file exists both stacks are correct, because both bind `./data/logs`.
 
+**If `docker compose up` fails to start any service**, the collector's fixed host port may already be in use — a leftover container, a host syslog daemon, or another stack. Check with `ss -lunp | grep 5514` and free the port, or set `QUIP_LOG_PORT` in `.env` to move the collector off 5514.
+
 If you have v0.1 logs, move any existing `data/logs/quip-node.log*` files into `data/logs/archive-v0.1/` before first start. The rotation would otherwise interleave stale v0.1 miner output with new merged output. Use these commands:
 
 ```bash

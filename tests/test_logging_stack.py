@@ -111,6 +111,25 @@ def test_every_service_uses_the_syslog_driver():
     assert "tag: '{{.Name}}'" in config or 'tag: "{{.Name}}"' in config
 
 
+def test_log_port_override_changes_the_published_port_and_syslog_address():
+    """C2: QUIP_LOG_PORT must move both the host bind and every producer's
+    syslog-address together, so an operator can escape a port collision
+    without editing tracked files."""
+    env = dict(os.environ, QUIP_LOG_PORT="5599")
+    result = subprocess.run(
+        ["docker", "compose", "--profile", "cpu", "--profile", "cuda", "--profile", "faucet", "config"],
+        cwd=REPO_ROOT, capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    config = result.stdout
+    assert "syslog-address: udp://127.0.0.1:5599" in config
+    block = _service_block(config, "quip-syslog")
+    assert re.search(
+        r'host_ip: 127\.0\.0\.1\n\s*target: 5514\n\s*published: "5599"\n\s*protocol: udp',
+        block,
+    ), "host port must follow QUIP_LOG_PORT while the container side stays 5514"
+
+
 def test_services_depend_on_the_collector_starting():
     config = _compose_config()
     for service in LOGGING_SERVICES:

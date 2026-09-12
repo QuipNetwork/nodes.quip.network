@@ -24,7 +24,7 @@ x-runtime-user: &runtime-user
 x-logging: &default-logging
   driver: syslog
   options:
-    syslog-address: "udp://127.0.0.1:5514"
+    syslog-address: "udp://127.0.0.1:${QUIP_LOG_PORT:-5514}"
     # Container name becomes the PROGRAM field, which is the per-line prefix
     # in the merged file. Without it every line is tagged with a container id.
     tag: "{{.Name}}"
@@ -454,8 +454,11 @@ services:
         max-file: "2"
     ports:
       # Loopback only. The daemon reaches this from the host; nothing off-box
-      # should be able to inject lines into the operator's log.
-      - "127.0.0.1:5514:5514/udp"
+      # should be able to inject lines into the operator's log. The host side
+      # is overridable (QUIP_LOG_PORT) so a bind collision on 5514 does not
+      # abort `docker compose up` for the whole stack -- the container side
+      # stays fixed at 5514 to match syslog-ng.conf and the test fixture.
+      - "127.0.0.1:${QUIP_LOG_PORT:-5514}:5514/udp"
     volumes:
       - ./syslog-ng/syslog-ng.conf:/config/syslog-ng.conf:ro
       - ./syslog-ng/entrypoint.sh:/entrypoint.sh:ro
