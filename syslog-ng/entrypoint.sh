@@ -39,7 +39,7 @@ rotate() {
         i=$((i - 1))
     done
     mv "$LOG" "$LOG.1"
-    kill -HUP "$SNG"
+    kill -HUP "$SNG" || true
 }
 
 while [ "$RUNNING" -eq 1 ] && kill -0 "$SNG" 2>/dev/null; do

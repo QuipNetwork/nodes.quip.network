@@ -1,9 +1,8 @@
-"""End-to-end tests for the merged stack logging setup.
+"""Static tests for the merged stack logging configuration and supervisor.
 
-Each test starts a real syslog-ng collector container, sends container
-output through the Docker syslog driver, then asserts on the merged file
-from the host. Real containers, because the thing under test is the
-interaction between the Docker daemon, the driver, and syslog-ng.
+Tests Tasks 1-2: static assertions on the syslog-ng config file and entrypoint
+script (executable bit, signal handling, rotation logic). Real-container tests
+sending output through the Docker syslog driver arrive in a later task.
 """
 
 import subprocess
@@ -26,6 +25,8 @@ def test_syslog_conf_sets_owner_group_and_perm():
     assert "owner(1000)" in text
     assert "group(1000)" in text
     assert "perm(0644)" in text
+    # The log statement must join source s_net to destination d_merged.
+    assert "log { source(s_net); destination(d_merged); }" in text
 
 
 ENTRYPOINT = REPO_ROOT / "syslog-ng" / "entrypoint.sh"
@@ -45,6 +46,11 @@ def test_entrypoint_rotates_by_size_and_keeps_five():
     assert "QUIP_LOG_KEEP:-5" in text
     assert "stat -c %s" in text, "rotation must trigger on size, not on time"
     assert "kill -HUP" in text
+    # Rotation must shift away from the live file (i + 1, not i - 1).
+    assert 'mv "$LOG.$i" "$LOG.$((i + 1))"' in text, "must increment index, shifting away"
+    # Must remove the oldest file before rotation and rename the live file.
+    assert 'rm -f "$LOG.$KEEP"' in text, "must clean up oldest backup"
+    assert 'mv "$LOG" "$LOG.1"' in text, "must rename live log"
 
 
 def test_entrypoint_handles_sigterm_without_blocking_on_sleep():
@@ -53,3 +59,5 @@ def test_entrypoint_handles_sigterm_without_blocking_on_sleep():
     assert "sleep \"$INTERVAL\" &" in text, "sleep must be backgrounded"
     assert "wait \"$SLP\"" in text, "wait is interruptible by signals; a bare sleep is not"
     assert "trap" in text
+    # The stop function must kill the backgrounded sleep, not just RUNNING.
+    assert 'kill "$SLP"' in text, "stop must kill the sleep PID to unblock wait"
