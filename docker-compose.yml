@@ -74,6 +74,8 @@ x-dashboard: &dashboard
     quip-validator:
       condition: service_healthy
       required: false
+    quip-syslog:
+      condition: service_started
 
 services:
   # Both miner images ship the v0.3 quip-coordinator with every miner binary
@@ -155,6 +157,8 @@ services:
       quip-validator:
         condition: service_healthy
         required: false
+      quip-syslog:
+        condition: service_started
 
   cuda:
     image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-${CHANNEL:-beta}}
@@ -214,6 +218,8 @@ services:
       quip-validator:
         condition: service_healthy
         required: false
+      quip-syslog:
+        condition: service_started
     deploy:
       resources:
         reservations:
@@ -266,6 +272,9 @@ services:
       default:
         aliases:
           - quip-validator
+    depends_on:
+      quip-syslog:
+        condition: service_started
     command:
       # Bootnodes come from the chain spec's bootNodes array. Override per
       # deployment by adding additional `--bootnodes=<multiaddr>` entries
@@ -335,6 +344,8 @@ services:
       quip-validator:
         condition: service_healthy
         required: false
+      quip-syslog:
+        condition: service_started
     command:
       - --node-url=${QUIP_FAUCET_NODE_URL:-ws://quip-validator:9944}
       - --faucet-key=${QUIP_FAUCET_KEY:-//Alice}
@@ -368,6 +379,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    depends_on:
+      quip-syslog:
+        condition: service_started
 
   caddy:
     image: caddy:2-alpine
@@ -405,7 +419,10 @@ services:
         aliases:
           - quip-caddy
     depends_on:
-      - dashboard
+      dashboard:
+        condition: service_started
+      quip-syslog:
+        condition: service_started
 
   # Merged log collector. Receives every service's stdout through the Docker
   # syslog driver and writes one file to data/logs/quip-node.log.

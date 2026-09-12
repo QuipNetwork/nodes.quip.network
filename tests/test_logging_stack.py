@@ -84,3 +84,12 @@ def test_collector_publishes_on_loopback_only():
     config = _compose_config()
     assert "127.0.0.1" in config, "collector port must not bind all interfaces"
     assert "quip-syslog" in config
+
+
+def test_services_start_after_the_collector():
+    config = _compose_config()
+    # compose config expands depends_on into a mapping per service; every
+    # logging service must name quip-syslog.
+    assert config.count("quip-syslog:") >= 7, (
+        "each service needs quip-syslog in depends_on, plus the service definition"
+    )
