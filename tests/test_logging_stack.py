@@ -1,8 +1,10 @@
-"""Static tests for the merged stack logging configuration and supervisor.
+"""Tests for the merged stack logging configuration and supervisor.
 
-Tests Tasks 1-2: static assertions on the syslog-ng config file and entrypoint
-script (executable bit, signal handling, rotation logic). Real-container tests
-sending output through the Docker syslog driver arrive in a later task.
+Tasks 1-2 are covered by static assertions on the syslog-ng config file and
+entrypoint script (executable bit, signal handling, rotation logic). The
+tests below Task 4 start real containers and push output through the actual
+Docker syslog driver, proving the merged-file behavior end to end rather
+than just matching config text.
 """
 
 import os
@@ -139,37 +141,6 @@ def test_collector_publishes_on_loopback_only():
     ), "collector port must publish on the loopback host_ip, not all interfaces"
 
 
-@pytest.fixture
-def collector(tmp_path):
-    """Run a real collector on a spare port, writing into tmp_path."""
-    logs = tmp_path / "logs"
-    logs.mkdir()
-    conf = tmp_path / "syslog-ng.conf"
-    conf.write_text(SYSLOG_CONF.read_text().replace("port(5514)", f"port({TEST_PORT})"))
-    name = "quip-syslog-pytest"
-    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-    subprocess.run([
-        "docker", "run", "-d", "--name", name,
-        "-p", f"127.0.0.1:{TEST_PORT}:{TEST_PORT}/udp",
-        # Small threshold and a fast interval so rotation is testable in
-        # seconds. Production defaults are 10485760 bytes and 30 seconds.
-        "-e", "QUIP_LOG_MAX_BYTES=4096",
-        "-e", "QUIP_LOG_CHECK_INTERVAL=2",
-        # syslog-ng.conf's owner()/group() are backtick env expansions with no
-        # default; without these the merged file would be owned by nobody the
-        # test runner can read back.
-        "-e", f"PUID={os.getuid()}",
-        "-e", f"PGID={os.getgid()}",
-        "-v", f"{conf}:/config/syslog-ng.conf:ro",
-        "-v", f"{ENTRYPOINT}:/entrypoint.sh:ro",
-        "-v", f"{logs}:/logs",
-        "--entrypoint", "/entrypoint.sh", COLLECTOR_IMAGE,
-    ], check=True, capture_output=True)
-    time.sleep(4)
-    yield logs
-    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-
-
 def _emit(tag, message):
     subprocess.run([
         "docker", "run", "--rm",
@@ -180,7 +151,60 @@ def _emit(tag, message):
     ], check=True, capture_output=True)
 
 
-def test_all_services_land_in_one_file_readable_by_the_host(collector):
+def _wait_until_collector_is_ready(logs, timeout=10):
+    """Poll for a probe line instead of a fixed sleep, since a fixed sleep is
+    a flake source: it either wastes time or, on a slow host, races the
+    supervisor's own startup."""
+    merged = logs / "quip-node.log"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        _emit("readiness-probe", "probe-ok")
+        time.sleep(0.5)
+        if merged.exists() and "probe-ok" in merged.read_text():
+            return
+    pytest.fail(f"collector did not become ready within {timeout}s")
+
+
+@pytest.fixture
+def collector(tmp_path):
+    """Run a real collector on a spare port, writing into tmp_path."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    conf = tmp_path / "syslog-ng.conf"
+    conf.write_text(SYSLOG_CONF.read_text().replace("port(5514)", f"port({TEST_PORT})"))
+    name = "quip-syslog-pytest"
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    try:
+        subprocess.run([
+            "docker", "run", "-d", "--name", name,
+            "-p", f"127.0.0.1:{TEST_PORT}:{TEST_PORT}/udp",
+            # Small threshold and a fast interval so rotation is testable in
+            # seconds. Production defaults are 10485760 bytes and 30 seconds.
+            "-e", "QUIP_LOG_MAX_BYTES=4096",
+            "-e", "QUIP_LOG_CHECK_INTERVAL=2",
+            # syslog-ng.conf's owner()/group() are backtick env expansions with no
+            # default; without these the merged file would be owned by nobody the
+            # test runner can read back.
+            "-e", f"PUID={os.getuid()}",
+            "-e", f"PGID={os.getgid()}",
+            "-v", f"{conf}:/config/syslog-ng.conf:ro",
+            "-v", f"{ENTRYPOINT}:/entrypoint.sh:ro",
+            "-v", f"{logs}:/logs",
+            "--entrypoint", "/entrypoint.sh", COLLECTOR_IMAGE,
+        ], check=True, capture_output=True)
+        _wait_until_collector_is_ready(logs)
+        yield logs
+    finally:
+        # try/finally, not a post-yield statement: a container created by the
+        # `docker run` above but killed by a later failure (e.g. the
+        # readiness poll timing out) must still be removed, or it leaks into
+        # every later test run under the same fixed name.
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+
+
+def test_multiple_tagged_sources_merge_into_one_host_readable_file(collector):
+    """Three synthetic tags stand in for the real services; the full
+    seven-service stack is exercised in a later task's integration test."""
     for tag, message in [
         ("quip-miner", "attempt submitted"),
         ("quip-validator", "block imported"),
@@ -190,14 +214,42 @@ def test_all_services_land_in_one_file_readable_by_the_host(collector):
     time.sleep(2)
 
     merged = collector / "quip-node.log"
-    text = merged.read_text()  # fails outright if perms are wrong
+    text = merged.read_text()
 
     assert "quip-miner attempt submitted" in text
     assert "quip-validator block imported" in text
     assert "quip-caddy request served" in text
     assert oct(merged.stat().st_mode)[-3:] == "644"
-    # One merged stream, so the three tags share one file in arrival order.
-    assert text.index("quip-miner") < text.index("quip-caddy")
+    # perm(0644) alone makes the file world-readable regardless of who owns
+    # it, so it does not prove the backtick PUID/PGID expansion worked -- a
+    # config with no owner()/group() at all still passes read_text() above.
+    # Check ownership explicitly against the ids the fixture passed in.
+    assert merged.stat().st_uid == os.getuid()
+    assert merged.stat().st_gid == os.getgid()
+    # One merged stream, so the three tags share one file in full arrival
+    # order, not just first-before-last.
+    assert text.index("quip-miner") < text.index("quip-validator") < text.index("quip-caddy")
+
+
+def test_container_name_tag_expands_in_the_merged_file(collector):
+    """Compose configures `tag: "{{.Name}}"`; confirm Docker's syslog driver
+    actually expands that placeholder to the container name, rather than
+    leaving it literal or substituting something else."""
+    name = "quip-tag-check"
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    try:
+        subprocess.run([
+            "docker", "run", "--rm", "--name", name,
+            "--log-driver", "syslog",
+            "--log-opt", f"syslog-address=udp://127.0.0.1:{TEST_PORT}",
+            "--log-opt", "tag={{.Name}}",
+            "alpine:3.22", "sh", "-c", "echo tag-expansion-check",
+        ], check=True, capture_output=True)
+        time.sleep(2)
+        text = (collector / "quip-node.log").read_text()
+        assert f"{name} tag-expansion-check" in text
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
 
 
 def _emit_bulk(tag, marker, count=60):
@@ -213,6 +265,18 @@ def _emit_bulk(tag, marker, count=60):
 
 def test_log_rotates_by_size_and_keeps_five_generations(collector):
     """Threshold is 4096 bytes in this fixture; each round writes past it."""
+    # Control case first: a single short line, well under the 4096-byte
+    # threshold, held through several 2s check intervals. A mutant that
+    # rotates on every interval regardless of size (e.g.
+    # `if [ -f "$LOG" ]; then rotate; fi`) would still produce a correct-
+    # looking .1-.5 set once the bulk case below runs, so this has to be
+    # checked on its own: no rotation must happen from time passing alone.
+    _emit(tag="quip-miner", message="tiny-line-under-threshold")
+    time.sleep(8)
+    assert not (collector / "quip-node.log.1").exists(), (
+        "rotation must trigger on size, not merely on the check interval elapsing"
+    )
+
     for round_no in range(1, 8):
         _emit_bulk("quip-miner", f"round-{round_no}")
         time.sleep(4)
@@ -220,6 +284,9 @@ def test_log_rotates_by_size_and_keeps_five_generations(collector):
 
     assert (collector / "quip-node.log").exists(), "live file must be recreated after SIGHUP"
     assert (collector / "quip-node.log.1").exists()
+    assert (collector / "quip-node.log.2").exists()
+    assert (collector / "quip-node.log.3").exists()
+    assert (collector / "quip-node.log.4").exists()
     assert (collector / "quip-node.log.5").exists()
     assert not (collector / "quip-node.log.6").exists(), "KEEP=5 must drop the oldest"
 
@@ -233,27 +300,70 @@ def test_collector_stops_within_the_docker_timeout():
     """Regression: a foreground sleep swallows SIGTERM for the full 10s."""
     name = "quip-syslog-stoptest"
     subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-    subprocess.run([
-        "docker", "run", "-d", "--name", name,
-        "-e", "QUIP_LOG_CHECK_INTERVAL=30",
-        "-v", f"{SYSLOG_CONF}:/config/syslog-ng.conf:ro",
-        "-v", f"{ENTRYPOINT}:/entrypoint.sh:ro",
-        "--entrypoint", "/entrypoint.sh", COLLECTOR_IMAGE,
-    ], check=True, capture_output=True)
-    time.sleep(3)
-    start = time.monotonic()
-    subprocess.run(["docker", "stop", name], check=True, capture_output=True)
-    elapsed = time.monotonic() - start
+    try:
+        subprocess.run([
+            "docker", "run", "-d", "--name", name,
+            "-e", "QUIP_LOG_CHECK_INTERVAL=30",
+            "-v", f"{SYSLOG_CONF}:/config/syslog-ng.conf:ro",
+            "-v", f"{ENTRYPOINT}:/entrypoint.sh:ro",
+            "--entrypoint", "/entrypoint.sh", COLLECTOR_IMAGE,
+        ], check=True, capture_output=True)
+        time.sleep(3)
+        running = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", name],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        # If the supervisor already exited (e.g. a config error), `docker
+        # stop` on an exited container returns almost instantly and this
+        # test would pass without ever exercising the SIGTERM path.
+        assert running == "true", "supervisor must still be running before timing the stop"
+
+        start = time.monotonic()
+        subprocess.run(["docker", "stop", name], check=True, capture_output=True)
+        elapsed = time.monotonic() - start
+        assert elapsed < 5, f"SIGTERM ignored; docker had to SIGKILL after {elapsed:.0f}s"
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+
+
+def test_docker_logs_reads_the_local_cache_but_fails_when_disabled(collector):
+    """Dual logging: `docker logs` reads the local json-file cache the
+    syslog driver keeps alongside forwarding, independent of the merged
+    file. The negative case (cache-disabled) proves the positive case is
+    actually exercising that cache and not just an exit code that would be
+    zero regardless of whether reading logs works at all."""
+    name = "quip-dual-log-check"
     subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-    assert elapsed < 5, f"SIGTERM ignored; docker had to SIGKILL after {elapsed:.0f}s"
+    try:
+        subprocess.run([
+            "docker", "run", "-d", "--name", name,
+            "--log-driver", "syslog",
+            "--log-opt", f"syslog-address=udp://127.0.0.1:{TEST_PORT}",
+            "alpine:3.22", "sh", "-c", "echo dual-logging-check; sleep 5",
+        ], check=True, capture_output=True)
+        time.sleep(1)
+        result = subprocess.run(["docker", "logs", name], capture_output=True, text=True)
+        assert result.returncode == 0
+        assert "dual-logging-check" in result.stdout
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
 
-
-def test_docker_logs_still_works_under_the_syslog_driver(collector):
-    """Dual logging: the driver is not readable, but the local cache is."""
-    result = subprocess.run([
-        "docker", "run", "--rm",
-        "--log-driver", "syslog",
-        "--log-opt", f"syslog-address=udp://127.0.0.1:{TEST_PORT}",
-        "alpine:3.22", "sh", "-c", "echo dual-logging-check",
-    ], capture_output=True, text=True)
-    assert result.returncode == 0
+    disabled_name = "quip-dual-log-disabled"
+    subprocess.run(["docker", "rm", "-f", disabled_name], capture_output=True)
+    try:
+        subprocess.run([
+            "docker", "run", "-d", "--name", disabled_name,
+            "--log-driver", "syslog",
+            "--log-opt", f"syslog-address=udp://127.0.0.1:{TEST_PORT}",
+            "--log-opt", "cache-disabled=true",
+            "alpine:3.22", "sh", "-c", "echo dual-logging-check; sleep 5",
+        ], check=True, capture_output=True)
+        time.sleep(1)
+        result = subprocess.run(["docker", "logs", disabled_name], capture_output=True, text=True)
+        assert result.returncode != 0, (
+            "cache-disabled must make `docker logs` fail; if it still succeeds, "
+            "this test cannot tell a working local cache from a broken one"
+        )
+        assert "does not support reading" in result.stderr
+    finally:
+        subprocess.run(["docker", "rm", "-f", disabled_name], capture_output=True)
