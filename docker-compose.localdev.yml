@@ -87,7 +87,7 @@ services:
       - cuda
       - faucet
 
-  # These three are unchanged from the base file except for the namespaced
+  # These four are unchanged from the base file except for the namespaced
   # container_name — they're listed here only so the localdev stack doesn't
   # reuse the base file's fixed global names.
   dashboard:
@@ -98,6 +98,9 @@ services:
 
   caddy:
     container_name: quip-caddy-localdev
+
+  quip-syslog:
+    container_name: quip-syslog-localdev
 
 # Re-declare the base file's named volumes with a localdev prefix. Services
 # reference them by their compose key (pgdata / caddy-data / caddy-config),
