@@ -431,7 +431,7 @@ services:
   # collector's own driver at the collector is a feedback loop. It stays on
   # json-file so its startup errors remain visible in `docker compose logs`.
   quip-syslog:
-    image: linuxserver/syslog-ng:latest
+    image: linuxserver/syslog-ng:${QUIP_SYSLOG_TAG:-4.11.0}
     pull_policy: always
     container_name: quip-syslog
     restart: unless-stopped

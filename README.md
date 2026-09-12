@@ -544,6 +544,12 @@ This tails the merged file with a 200-line window. If the file does not exist ye
 
 The collector rotates the file at 10 MB and keeps 5 generations, the same as the v0.1 miner did. `docker compose logs` also still works, served from Docker's local cache rather than from the file.
 
+**The merged file is best-effort, by design.** Every service reaches the collector over UDP so that a stalled or restarting collector never blocks a producer's startup (see `syslog-ng/syslog-ng.conf`). The tradeoff is dropped lines under a burst: a single container emitting a 20000-line burst can lose around 15 percent of them at the kernel's default receive buffer. `docker compose logs <service>` (or `make logs` equivalents per service) reads from Docker's own cache instead of the network and does not drop lines; treat the merged file as a convenience view and the per-service logs as the record of truth when every line matters. The collector raises its UDP receive buffer (`so-rcvbuf`) to narrow the loss window, but the kernel still caps it at `net.core.rmem_max`; raise that on the host if you need it higher, for example `sysctl -w net.core.rmem_max=8388608`.
+
+**The merged file is operational, not an audit log.** Any local process on the host can send a UDP datagram to the collector's port and have it appear as a line in `data/logs/quip-node.log`, tagged with whatever program name it chooses. Do not rely on this file to prove what a service did or did not log.
+
+A single log line over 16 KB (for example a substrate panic or a RocksDB error dump) arrives in the merged file as several separately timestamped records instead of one. This is a limit of Docker's log copier, not of syslog-ng, and cannot be changed from this side — recognize a multi-part stack trace by matching timestamps.
+
 **Known limitation:** before the merged file exists, `make logs` on a localdev stack falls back to the testnet project's container logs. Once the file exists both stacks are correct, because both bind `./data/logs`.
 
 **If `docker compose up` fails to start any service**, the collector's fixed host port may already be in use — a leftover container, a host syslog daemon, or another stack. Check with `ss -lunp | grep 5514` and free the port, or set `QUIP_LOG_PORT` in `.env` to move the collector off 5514.

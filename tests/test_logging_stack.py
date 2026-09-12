@@ -23,13 +23,19 @@ TEST_PORT = 5515
 
 def test_syslog_conf_sets_owner_group_and_perm():
     text = SYSLOG_CONF.read_text()
-    assert 'udp(ip("0.0.0.0") port(5514))' in text
+    assert 'port(5514)' in text
+    # so-rcvbuf narrows (does not eliminate) UDP line loss under a burst.
+    assert "so-rcvbuf(8388608)" in text
     assert "/logs/quip-node.log" in text
     # Backtick expansion, not a hardcoded literal: the file must be owned by
     # whatever PUID/PGID the operator configures, not always 1000/1000.
     assert "owner(`PUID`)" in text
     assert "group(`PGID`)" in text
     assert "perm(0644)" in text
+    # sanitize() escapes embedded newlines/control chars in ${MESSAGE}, so a
+    # forged datagram cannot inject a second line that impersonates another
+    # service.
+    assert "$(sanitize ${MESSAGE})" in text
     # The log statement must join source s_net to destination d_merged.
     assert "log { source(s_net); destination(d_merged); }" in text
 
@@ -66,6 +72,26 @@ def test_entrypoint_handles_sigterm_without_blocking_on_sleep():
     assert "trap" in text
     # The stop function must kill the backgrounded sleep, not just RUNNING.
     assert 'kill "$SLP"' in text, "stop must kill the sleep PID to unblock wait"
+
+
+def test_entrypoint_restarts_syslog_ng_when_the_log_is_unlinked():
+    """Static check for C1: SIGHUP cannot reopen an unlinked path, so the
+    supervisor must kill and restart the syslog-ng child instead."""
+    text = ENTRYPOINT.read_text()
+    assert 'elif [ "$SEEN" -eq 1 ]' in text, "must distinguish 'never existed yet' from 'deleted'"
+    assert 'kill -TERM "$SNG"' in text
+    assert "syslog-ng -F -f /config/syslog-ng.conf &" in text.split("elif", 1)[1], (
+        "the restart branch must relaunch syslog-ng, not just kill it"
+    )
+
+
+def test_entrypoint_chowns_the_log_dir_and_reports_a_crash():
+    text = ENTRYPOINT.read_text()
+    # M2: a fresh bind mount is root-owned, blocking non-root archive/cleanup.
+    assert "chown" in text and "/logs" in text
+    # M4: exit 0 on a syslog-ng crash misreports success.
+    assert 'if [ "$RUNNING" -eq 1 ]' in text
+    assert "exit 1" in text
 
 
 # The seven services that must forward logs to, and start after, quip-syslog.
@@ -109,6 +135,11 @@ def test_every_service_uses_the_syslog_driver():
         assert "driver: syslog" in block, f"{service} must inherit the syslog logging anchor"
     assert "syslog-address: udp://127.0.0.1:5514" in config
     assert "tag: '{{.Name}}'" in config or 'tag: "{{.Name}}"' in config
+    # M5(a): nothing else in the suite pins these two down. Deleting both
+    # from docker-compose.yml's x-logging anchor leaves every other test
+    # green while silently killing QUIP_LOG_MAX_SIZE/QUIP_LOG_MAX_FILE.
+    assert "cache-max-size: 32m" in config
+    assert 'cache-max-file: "5"' in config
 
 
 def test_log_port_override_changes_the_published_port_and_syslog_address():
@@ -313,6 +344,81 @@ def test_log_rotates_by_size_and_keeps_five_generations(collector):
     _emit(tag="quip-caddy", message="post-rotate-alive")
     time.sleep(2)
     assert "post-rotate-alive" in (collector / "quip-node.log").read_text()
+
+
+def test_collector_recovers_after_the_live_log_is_deleted(collector):
+    """C1, exercised for real: syslog-ng holds the log open, so `[ -f "$LOG" ]`
+    alone can never see a deletion. Delete the live file, emit more lines, and
+    confirm the supervisor restarts syslog-ng and the file comes back and
+    keeps growing -- not just reappears once and stalls."""
+    _emit(tag="quip-miner", message="before-delete")
+    time.sleep(2)
+    merged = collector / "quip-node.log"
+    assert merged.exists()
+
+    merged.unlink()
+    assert not merged.exists()
+
+    # QUIP_LOG_CHECK_INTERVAL=2 in the fixture; give the supervisor a few
+    # cycles to notice the deletion and restart syslog-ng.
+    deadline = time.monotonic() + 12
+    recreated = False
+    while time.monotonic() < deadline:
+        _emit(tag="quip-miner", message="after-delete")
+        time.sleep(1)
+        if merged.exists():
+            recreated = True
+            break
+    assert recreated, "supervisor must recreate the log file after it is deleted"
+
+    size_after_recreate = merged.stat().st_size
+    _emit(tag="quip-miner", message="still-growing")
+    time.sleep(2)
+    assert merged.stat().st_size > size_after_recreate, (
+        "the recreated file must keep taking writes, not just exist once"
+    )
+    assert "still-growing" in merged.read_text()
+
+
+def test_supervisor_exits_nonzero_when_syslog_ng_crashes():
+    """M4: `restart: unless-stopped` recovers a crashed syslog-ng, but the
+    supervisor's own exit code must not misreport that as a clean stop."""
+    name = "quip-syslog-crashtest"
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    try:
+        subprocess.run([
+            "docker", "run", "-d", "--name", name,
+            "-e", "QUIP_LOG_CHECK_INTERVAL=1",
+            "-v", f"{SYSLOG_CONF}:/config/syslog-ng.conf:ro",
+            "-v", f"{ENTRYPOINT}:/entrypoint.sh:ro",
+            "--entrypoint", "/entrypoint.sh", COLLECTOR_IMAGE,
+        ], check=True, capture_output=True)
+        time.sleep(2)
+
+        pid = subprocess.run(
+            ["docker", "exec", name, "pidof", "syslog-ng"],
+            capture_output=True, text=True,
+        ).stdout.split()[0]
+        subprocess.run(["docker", "exec", name, "kill", "-9", pid], check=True, capture_output=True)
+
+        deadline = time.monotonic() + 15
+        exit_code = None
+        while time.monotonic() < deadline:
+            running = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", name],
+                capture_output=True, text=True,
+            ).stdout.strip()
+            if running == "false":
+                exit_code = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", name],
+                    capture_output=True, text=True,
+                ).stdout.strip()
+                break
+            time.sleep(1)
+        assert exit_code is not None, "supervisor must exit after its child dies"
+        assert exit_code != "0", "a crashed syslog-ng must not report a clean exit"
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
 
 
 def test_collector_stops_within_the_docker_timeout():

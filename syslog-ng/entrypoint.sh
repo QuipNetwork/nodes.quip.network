@@ -12,6 +12,12 @@ MAX_BYTES="${QUIP_LOG_MAX_BYTES:-10485760}"   # 10 MB, matching v0.1 node_log
 KEEP="${QUIP_LOG_KEEP:-5}"
 INTERVAL="${QUIP_LOG_CHECK_INTERVAL:-30}"
 
+# The bind mount can be created root-owned by Docker on a fresh install
+# (before syslog-ng ever writes to it), which leaves a non-root operator
+# unable to create archive-* directories or remove rotated logs under it.
+# Guarded so a failure here (e.g. PUID/PGID unset) cannot abort startup.
+chown "${PUID:-0}:${PGID:-0}" /logs 2>/dev/null || true
+
 syslog-ng -F -f /config/syslog-ng.conf &
 SNG=$!
 
@@ -70,3 +76,10 @@ while [ "$RUNNING" -eq 1 ] && kill -0 "$SNG" 2>/dev/null; do
 done
 
 wait "$SNG" 2>/dev/null || true
+
+# RUNNING is only cleared by the TERM/INT trap. If the loop above exited any
+# other way, syslog-ng died on its own and restart: unless-stopped is what
+# recovers it -- but a plain exit 0 here would misreport that as a clean stop.
+if [ "$RUNNING" -eq 1 ]; then
+    exit 1
+fi
