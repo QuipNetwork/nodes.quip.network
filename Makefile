@@ -135,7 +135,7 @@ localdev: require-env down clean-chain
 	# self-bootstrap fails inside its retry loop.
 	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d
 	@echo ""
-	@echo "localdev stack up. tail logs: make logs"
+	@echo "localdev stack up. tail logs: tail -F data/logs-localdev/quip-node.log"
 	@echo ""
 	@echo "  dashboard            : http://localhost:20049/"
 	@echo "  miner REST (v1)      : http://localhost:20049/api/v1/"
