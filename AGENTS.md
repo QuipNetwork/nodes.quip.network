@@ -165,7 +165,7 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 | `[global].node_name` | `[miner].node_name` | Most important field — carried over by the converter. |
 | `[global].public_host`, `.public_port` | `[miner].public_host`, `.public_port` | Promoted to first-class (was commented in v0.1). |
 | `[global].rest_host`, `.rest_port` | `[dashboard].listen` | v0.2 put these in `[miner]`. v0.3 removed both and serves the REST surface from `[dashboard]`. The value is pinned to `0.0.0.0:8086` because Caddy proxies `/api/v1/*` to `quip-miner:8086`. A v0.1 port such as 443, used when the miner served TLS itself, breaks the Caddy upstream, so the converter carries nothing over and warns. |
-| `[global].log_level`, `.node_log` | `[miner].log_level` | `log_level` promoted. `node_log` carried over by converter but nothing reads it — the miner logs to stdout and the stack merges every service into `data/logs/quip-node.log`. |
+| `[global].log_level`, `.node_log` | `[miner].log_level` | `log_level` promoted. `node_log` carried over by converter but nothing reads it — the miner logs to stdout, and every service except the collector merges into `data/logs/quip-node.log`. |
 | `[global].secret` | dropped | Deterministic-key seed replaced by hybrid sr25519 + ML-DSA-44 keystore at `signer_key`. |
 | `[global].genesis_config` | dropped | Genesis owned by validator (chain spec baked into binary). |
 | `[global].auto_mine` | dropped | Miner mines unconditionally once connected. |
