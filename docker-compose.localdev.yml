@@ -87,7 +87,7 @@ services:
       - cuda
       - faucet
 
-  # These three are unchanged from the base file except for the namespaced
+  # These four are unchanged from the base file except for the namespaced
   # container_name — they're listed here only so the localdev stack doesn't
   # reuse the base file's fixed global names.
   dashboard:
@@ -98,6 +98,17 @@ services:
 
   caddy:
     container_name: quip-caddy-localdev
+
+  # If you ever set QUIP_LOG_PORT to escape a collision with the base stack's
+  # collector, you must change this path too -- two collectors rotating one
+  # ./data/logs/quip-node.log concurrently interleaves writes and loses
+  # rotated generations. Port and path move together, never one alone.
+  quip-syslog:
+    container_name: quip-syslog-localdev
+    volumes:
+      - ./syslog-ng/syslog-ng.conf:/config/syslog-ng.conf:ro
+      - ./syslog-ng/entrypoint.sh:/entrypoint.sh:ro
+      - ./data/logs-localdev:/logs
 
 # Re-declare the base file's named volumes with a localdev prefix. Services
 # reference them by their compose key (pgdata / caddy-data / caddy-config),

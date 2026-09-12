@@ -50,7 +50,7 @@ help:
 	@echo "                            (use when the host has Python < 3.11)."
 	@echo "  make pull              Pull images for PROFILE"
 	@echo "  make down              Tear down both profile sets"
-	@echo "  make logs              Tail validator + miner logs"
+	@echo "  make logs              Tail merged stack log (data/logs/quip-node.log)"
 	@echo "  make clean-chain       Wipe data/aglais-chain-db/chains"
 	@echo "  make clean             Full reset: down + wipe chain, pgdata volume, dashboard-data"
 	@echo ""
@@ -135,7 +135,7 @@ localdev: require-env down clean-chain
 	# self-bootstrap fails inside its retry loop.
 	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d
 	@echo ""
-	@echo "localdev stack up. tail logs: make logs"
+	@echo "localdev stack up. tail logs: tail -F data/logs-localdev/quip-node.log"
 	@echo ""
 	@echo "  dashboard            : http://localhost:20049/"
 	@echo "  miner REST (v1)      : http://localhost:20049/api/v1/"
@@ -174,7 +174,12 @@ down:
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) --profile faucet down
 
 logs:
-	$(COMPOSE) logs -f --tail=50 quip-validator cpu cuda
+	@if [ -f data/logs/quip-node.log ]; then \
+	    tail -F -n 200 data/logs/quip-node.log; \
+	else \
+	    echo "data/logs/quip-node.log not present yet; falling back to compose logs"; \
+	    $(COMPOSE) logs -f --tail=50; \
+	fi
 
 # `trash` keeps wiped chains recoverable via macOS Trash per global preference;
 # the rm fallback covers Linux/CI hosts without `trash` installed.

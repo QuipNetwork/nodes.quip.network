@@ -534,10 +534,40 @@ The config file is bind-mounted, so restarting re-reads it from disk. Use `--for
 docker compose --profile cpu up -d --force-recreate
 ```
 
+## Logs
+
+Every service except the collector writes to one merged file, `data/logs/quip-node.log`. Each line carries the container name, so one `tail` shows the whole stack:
+
+    make logs
+
+This tails the merged file with a 200-line window. If the file does not exist yet (first boot), it falls back to `docker compose logs -f --tail=50` across the whole project. The collector is the exception — it stays on Docker's json-file driver so its own startup errors remain readable when the merged file is broken or missing. Read collector errors with `docker compose logs quip-syslog`. The collector output does not appear in the merged file.
+
+The collector rotates the file at 10 MB and keeps 5 generations, the same as the v0.1 miner did. `docker compose logs` also still works, served from Docker's local cache rather than from the file.
+
+**The merged file is best-effort, by design.** Every service reaches the collector over UDP so that a stalled or restarting collector never blocks a producer's startup (see `syslog-ng/syslog-ng.conf`). The tradeoff is dropped lines under a burst: a single container emitting a 20000-line burst can lose around 15 percent of them at the kernel's default receive buffer. `docker compose logs <service>` (or `make logs` equivalents per service) reads from Docker's own cache instead of the network and does not drop lines; treat the merged file as a convenience view and the per-service logs as the record of truth when every line matters. The collector raises its UDP receive buffer (`so-rcvbuf`) to narrow the loss window, but the kernel still caps it at `net.core.rmem_max`; raise that on the host if you need it higher, for example `sysctl -w net.core.rmem_max=8388608`.
+
+**The merged file is operational, not an audit log.** Any local process on the host can send a UDP datagram to the collector's port and have it appear as a line in `data/logs/quip-node.log`, tagged with whatever program name it chooses. Do not rely on this file to prove what a service did or did not log.
+
+A single log line over 16 KB (for example a substrate panic or a RocksDB error dump) arrives in the merged file as several separately timestamped records instead of one. This is a limit of Docker's log copier, not of syslog-ng, and cannot be changed from this side — recognize a multi-part stack trace by matching timestamps.
+
+**Known limitation:** `make logs` always tails `data/logs/quip-node.log`, the testnet stack's merged file. The localdev stack writes its own merged log to `data/logs-localdev/quip-node.log`, so `make logs` never shows localdev's merged output — read it directly, or use `docker compose logs -f <service>` against the localdev project.
+
+**If `docker compose up` fails to start any service**, the collector's fixed host port may already be in use — a leftover container, a host syslog daemon, or another stack. Check with `ss -lunp | grep 5514` and free the port, or set `QUIP_LOG_PORT` in `.env` to move the collector off 5514.
+
+If you have v0.1 logs, move any existing `data/logs/quip-node.log*` files into `data/logs/archive-v0.1/` before first start. The rotation would otherwise interleave stale v0.1 miner output with new merged output. Use these commands:
+
+```bash
+mkdir -p data/logs/archive-v0.1
+mv data/logs/quip-node.log* data/logs/archive-v0.1/ 2>/dev/null || true
+```
+
+Run this only before first start, or stop the stack first. Moving the live file out from under a running collector unlinks it while syslog-ng still holds it open; the supervisor detects this and restarts syslog-ng automatically within one `QUIP_LOG_CHECK_INTERVAL`, but you can avoid even that gap by stopping the stack first or running `docker restart quip-syslog` immediately afterward.
+
 ## Maintenance
 
 | Task | Command |
 |------|---------|
+| View merged stack log | `make logs` |
 | View miner logs | `docker compose logs -f cpu` (or `cuda`) |
 | View validator logs | `docker compose logs -f quip-validator` |
 | View faucet logs | `docker compose logs -f quip-faucet` |
@@ -548,6 +578,8 @@ docker compose --profile cpu up -d --force-recreate
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
 | Force pull and redeploy | `docker compose pull cpu && docker compose up -d cpu` |
 | Stop everything | `docker compose --profile cpu --profile faucet down` |
+
+Changing `QUIP_LOG_MAX_BYTES` or `QUIP_LOG_KEEP` requires a container recreate, the same as changes to the cache size vars. Use `docker compose --profile cpu up -d --force-recreate` (or `cuda`).
 
 ## Files
 
