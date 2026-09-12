@@ -174,7 +174,12 @@ down:
 	$(COMPOSE_LOCALDEV) --profile $(PROFILE) --profile faucet down
 
 logs:
-	$(COMPOSE) logs -f --tail=50 quip-validator cpu cuda
+	@if [ -f data/logs/quip-node.log ]; then \
+	    tail -f -n 200 data/logs/quip-node.log; \
+	else \
+	    echo "data/logs/quip-node.log not present yet; falling back to compose logs"; \
+	    $(COMPOSE) logs -f --tail=50; \
+	fi
 
 # `trash` keeps wiped chains recoverable via macOS Trash per global preference;
 # the rm fallback covers Linux/CI hosts without `trash` installed.

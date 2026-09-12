@@ -534,6 +534,16 @@ The config file is bind-mounted, so restarting re-reads it from disk. Use `--for
 docker compose --profile cpu up -d --force-recreate
 ```
 
+## Logs
+
+Every service writes to one merged file, `data/logs/quip-node.log`. Each line carries the container name, so one `tail` shows the whole stack:
+
+    make logs
+
+The collector rotates the file at 10 MB and keeps 5 generations, the same as the v0.1 miner did. `docker compose logs` also still works, served from Docker's local cache rather than from the file.
+
+Logs from v0.1, which the miner wrote itself, are in `data/logs/archive-v0.1/`.
+
 ## Maintenance
 
 | Task | Command |
