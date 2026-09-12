@@ -553,6 +553,8 @@ mkdir -p data/logs/archive-v0.1
 mv data/logs/quip-node.log* data/logs/archive-v0.1/ 2>/dev/null || true
 ```
 
+Run this only before first start, or stop the stack first. Moving the live file out from under a running collector unlinks it while syslog-ng still holds it open; the supervisor detects this and restarts syslog-ng automatically within one `QUIP_LOG_CHECK_INTERVAL`, but you can avoid even that gap by stopping the stack first or running `docker restart quip-syslog` immediately afterward.
+
 ## Maintenance
 
 | Task | Command |

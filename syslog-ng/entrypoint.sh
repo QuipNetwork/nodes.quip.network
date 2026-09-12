@@ -42,9 +42,26 @@ rotate() {
     kill -HUP "$SNG" || true
 }
 
+# Set once the file has been observed to exist, so the very first iteration
+# (before syslog-ng has received a line and created the file) does not read
+# as a deletion and trigger a needless respawn.
+SEEN=0
+
 while [ "$RUNNING" -eq 1 ] && kill -0 "$SNG" 2>/dev/null; do
-    if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG")" -ge "$MAX_BYTES" ]; then
-        rotate
+    if [ -e "$LOG" ]; then
+        SEEN=1
+        if [ "$(stat -c %s "$LOG")" -ge "$MAX_BYTES" ]; then
+            rotate
+        fi
+    elif [ "$SEEN" -eq 1 ]; then
+        # The path was unlinked (e.g. `rm data/logs/quip-node.log`) while
+        # syslog-ng still holds the old inode open, so it keeps writing to
+        # nothing the filesystem shows and rotation can never fire again.
+        # SIGHUP does not recover this -- only reopening the process does.
+        kill -TERM "$SNG" 2>/dev/null || true
+        wait "$SNG" 2>/dev/null || true
+        syslog-ng -F -f /config/syslog-ng.conf &
+        SNG=$!
     fi
     # Backgrounded sleep plus wait: `wait` is interruptible by signals, so
     # SIGTERM reaches the trap at once instead of after INTERVAL seconds.
