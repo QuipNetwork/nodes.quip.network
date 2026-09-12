@@ -17,7 +17,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SYSLOG_CONF = REPO_ROOT / "syslog-ng" / "syslog-ng.conf"
-COLLECTOR_IMAGE = "linuxserver/syslog-ng:latest"
+COLLECTOR_IMAGE = "linuxserver/syslog-ng:4.11.0"
 TEST_PORT = 5515
 
 
