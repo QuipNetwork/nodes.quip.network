@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### The merged log keeps slashes and tabs
+
+`$(sanitize ${MESSAGE})` rewrote every `/` and every control character in a
+message to `_`. That mangled each URL and path the stack logs, and it
+collapsed Caddy's tab-delimited console format, so a 502 read as an ordinary
+line to any reader that keys on those tabs. A miner line such as
+`validators=ws://quip-validator:9944` reached the file as
+`validators=ws:__quip-validator:9944`.
+
+The call now names what it guards:
+`--no-ctrl-chars --invalid-chars '\n\r'`. Carriage return and line feed are
+still replaced, which is what keeps a local process from sending a datagram
+that forges a line under another service's name. Everything else reaches the
+file unchanged.
+
+Use single quotes around the character set. `"\n\r"` is taken literally as the
+characters `\`, `n` and `r`, which rewrites every `r` and `n` in the message
+and stops guarding newlines at all.
+
 ### The validator is back on CHANNEL
 
 `quip-network-node:stable` now names the v0.3 Aglais line, so the explicit

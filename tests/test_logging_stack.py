@@ -9,6 +9,7 @@ than just matching config text.
 
 import os
 import re
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -32,10 +33,11 @@ def test_syslog_conf_sets_owner_group_and_perm():
     assert "owner(`PUID`)" in text
     assert "group(`PGID`)" in text
     assert "perm(0644)" in text
-    # sanitize() escapes embedded newlines/control chars in ${MESSAGE}, so a
-    # forged datagram cannot inject a second line that impersonates another
-    # service.
-    assert "$(sanitize ${MESSAGE})" in text
+    # Replacing CR and LF is what stops a forged datagram injecting a second
+    # line that impersonates another service. The options stay narrow so the
+    # guard does not also rewrite "/" and tabs; see syslog-ng.conf for why the
+    # character set must be single-quoted.
+    assert r"$(sanitize --no-ctrl-chars --invalid-chars '\n\r' ${MESSAGE})" in text
     # The log statement must join source s_net to destination d_merged.
     assert "log { source(s_net); destination(d_merged); }" in text
 
@@ -201,6 +203,23 @@ def _emit(tag, message):
     ], check=True, capture_output=True)
 
 
+def _emit_raw(payload):
+    """Send one datagram straight at the collector.
+
+    `_emit` goes through Docker's syslog driver, which splits its input on
+    newlines and so cannot express the forgery the sanitize call guards
+    against. A local process faces no such limit, which is the threat.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.sendto(
+            ("<30>Sep 13 10:00:00 host quip-cpu: " + payload).encode(),
+            ("127.0.0.1", TEST_PORT),
+        )
+    finally:
+        sock.close()
+
+
 def _wait_until_collector_is_ready(logs, timeout=10):
     """Poll for a probe line instead of a fixed sleep, since a fixed sleep is
     a flake source: it either wastes time or, on a slow host, races the
@@ -250,6 +269,36 @@ def collector(tmp_path):
         # readiness poll timing out) must still be removed, or it leaks into
         # every later test run under the same fixed name.
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+
+
+def test_merged_lines_keep_slashes_and_tabs_but_cannot_be_forged(collector):
+    """The sanitize options are narrow on purpose.
+
+    A bare $(sanitize ...) rewrites "/" and every control character to "_",
+    which mangles every URL and path the stack logs and collapses Caddy's
+    tab-delimited console format. Keeping those readable while still confining
+    a record to one physical line is what the option list buys.
+    """
+    merged = collector / "quip-node.log"
+
+    _emit("quip-cpu", "validators=ws://quip-validator:9944 dir=/data/logs")
+    _emit_raw("2026/08/16 05:22:02.881\tERROR\thttp.log.error\tconnection refused")
+    _emit_raw("safe\n2026-09-13T00:00:00+00:00 quip-validator FORGED-LINE")
+    time.sleep(2)
+
+    text = merged.read_text()
+    assert "ws://quip-validator:9944 dir=/data/logs" in text, "slashes were rewritten"
+    assert "05:22:02.881\tERROR\thttp.log.error" in text, "tabs were rewritten"
+
+    # Every record was tagged quip-cpu or readiness-probe. A quip-validator
+    # line could only exist if the embedded newline split the record in two.
+    programs = {
+        line.split(" ", 2)[1] for line in text.splitlines() if line.count(" ") >= 2
+    }
+    assert "quip-validator" not in programs, (
+        f"newline injection forged a line under another service: {sorted(programs)}"
+    )
+    assert "safe_2026-09-13T00:00:00+00:00 quip-validator FORGED-LINE" in text
 
 
 def test_multiple_tagged_sources_merge_into_one_host_readable_file(collector):
