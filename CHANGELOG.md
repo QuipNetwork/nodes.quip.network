@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## v0.3.2
+
+### Every service logs to one merged file
+
+Every service except the collector sends its output to a syslog-ng collector,
+`quip-syslog`, which writes `data/logs/quip-node.log`. The file rotates at
+10 MB and keeps five rotated files. `make logs` tails it. Read the collector's
+own output with `docker compose logs quip-syslog`.
+
+Services reach the collector over UDP on host port 5514, so a stalled collector
+never blocks a service start. A burst can drop lines, and any local process can
+write a line under any service name. For a complete record, use
+`docker compose logs <service>`. If another program holds port 5514, set
+`QUIP_LOG_PORT` in `.env`.
 
 ### The merged log keeps slashes and tabs
 
@@ -28,14 +41,13 @@ and stops guarding newlines at all.
 longer needed. The reference is `${QUIP_VALIDATOR_TAG:-${CHANNEL:-beta}}`
 again, matching every other image in the stack.
 
-The validator publishes no non-rc v0.3 build yet, so its `stable` and `beta`
-resolve to the same Aglais image until one exists. That is a narrower claim
-than the miner images, where `stable` names `v0.3.0` and `beta` runs ahead of
-it. `make show-channel` prints what each service resolves to.
+The validator CI now moves `stable` and `beta` on each release tag, as the
+miner CI does. From validator v0.3.1, both tags name v0.3.1. Before that
+release, `stable` named the retired v0.2.2 build. Use validator v0.3.1 or later
+with this stack. `make show-channel` prints what each service resolves to.
 
-`latest` is unchanged and still pre-Aglais. It is not maintained as a release
-pointer for any image in this stack, and the documentation now says not to
-name it rather than describing what it happens to point at.
+The stack does not use `latest` as a release pointer for any image, and the
+documentation now says not to name it.
 
 ## v0.3.1
 
