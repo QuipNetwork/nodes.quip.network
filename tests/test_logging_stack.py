@@ -198,17 +198,15 @@ def test_localdev_dashboard_gets_its_own_logs_and_data_paths():
     /data mounts must resolve under the localdev-specific paths."""
     block = _service_block(_localdev_compose_config(), "dashboard")
     assert re.search(r"source: \S+/data/logs-localdev\n\s*target: /logs\n", block)
-    assert re.search(
-        r"source: \S+/dashboard-data-localdev\n\s*target: /data\n", block
-    )
+    assert re.search(r"source: \S+/dashboard-data-localdev\n\s*target: /data\n", block)
 
 
 def test_dashboard_publishes_the_public_ports():
     block = _service_block(_compose_config(), "dashboard")
     for port in ("20049", "80", "443"):
-        assert re.search(
-            rf'target: {port}\n\s*published: "{port}"', block
-        ), f"dashboard must publish port {port}"
+        assert re.search(rf'target: {port}\n\s*published: "{port}"', block), (
+            f"dashboard must publish port {port}"
+        )
 
 
 def test_dashboard_dials_upstreams_directly_and_uses_turso():
