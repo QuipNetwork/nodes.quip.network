@@ -14,12 +14,18 @@ import os
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_PORT = 5515
+# Spare loopback port for the collector fixture's copy of the image's
+# :20049 Caddy front door.
+FILES_PORT = 28452
+COLLECTOR_CONTAINER_NAME = "quip-dashboard-logtest"
 
 
 # The services that forward their stdout to the collector in the dashboard
@@ -269,7 +275,7 @@ def collector(tmp_path):
     """
     logs = tmp_path / "logs"
     logs.mkdir()
-    name = "quip-dashboard-logtest"
+    name = COLLECTOR_CONTAINER_NAME
     # -v: the image declares VOLUME /data, so each run creates an anonymous
     # volume that must be removed with the container.
     subprocess.run(["docker", "rm", "-f", "-v", name], capture_output=True)
@@ -283,6 +289,8 @@ def collector(tmp_path):
                 name,
                 "-p",
                 f"127.0.0.1:{TEST_PORT}:5514/udp",
+                "-p",
+                f"127.0.0.1:{FILES_PORT}:20049",
                 "-e",
                 f"PUID={os.getuid()}",
                 "-e",
@@ -444,3 +452,61 @@ def test_docker_logs_reads_the_local_cache_but_fails_when_disabled(collector):
         assert "does not support reading" in result.stderr
     finally:
         subprocess.run(["docker", "rm", "-f", disabled_name], capture_output=True)
+
+
+def _wait_until_files_route_is_ready(port, timeout=60):
+    """Poll for a response from Caddy instead of a fixed sleep.
+
+    Any HTTP response, 404 included, proves Caddy is listening. A
+    connection error means it has not started yet.
+    """
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2)
+            return
+        except urllib.error.HTTPError:
+            return
+        except urllib.error.URLError as exc:
+            last_error = exc
+        time.sleep(1)
+    pytest.fail(f"Caddy did not become ready within {timeout}s: {last_error}")
+
+
+def _assert_files_route_404s(port, path):
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=5)
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 404, f"GET {path} returned {exc.code}, want 404"
+    else:
+        pytest.fail(f"GET {path} returned 200, want 404")
+
+
+def test_dashboard_does_not_serve_private_state(collector):
+    """The image's /files route must allowlist qblocks and miners only.
+
+    This stack mounts the real certificate volumes under the image's
+    /data, so this check guards the image's /files allowlist.
+    """
+    del collector  # only needed to keep the container running
+    _wait_until_files_route_is_ready(FILES_PORT)
+    subprocess.run(
+        [
+            "docker",
+            "exec",
+            COLLECTOR_CONTAINER_NAME,
+            "sh",
+            "-c",
+            "mkdir -p /data/caddy/data/caddy/certificates/acme/example.com "
+            "&& echo secret > "
+            "/data/caddy/data/caddy/certificates/acme/example.com/example.com.key",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    _assert_files_route_404s(FILES_PORT, "/files/dashboard.db")
+    _assert_files_route_404s(
+        FILES_PORT,
+        "/files/caddy/data/caddy/certificates/acme/example.com/example.com.key",
+    )
