@@ -5,13 +5,12 @@ set -euo pipefail
 # only when the digest changes. Installs itself as an hourly cron job.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 LOG_FILE="${SCRIPT_DIR}/data/update.log"
 
 # Print the --profile arguments needed to recreate whatever the operator is
-# currently running, one flag pair per line. cpu and cuda profiles now
-# bundle the validator + dashboard + caddy by default; the faucet profile
-# layers additively when quip-faucet is also up.
+# currently running, one flag pair per line. cpu and cuda profiles bundle
+# the validator + dashboard by default; the faucet profile layers
+# additively when quip-faucet is also up.
 detect_profile() {
     local running
     running=$(docker ps --format '{{.Names}}')
@@ -36,7 +35,13 @@ update() {
     fi
 
     echo "$(date -Iseconds) Checking for updates (${profile_args[*]})"
-    docker compose -f "${COMPOSE_FILE}" "${profile_args[@]}" up -d
+    # --project-directory (not -f docker-compose.yml): an explicit -f skips
+    # compose's automatic docker-compose.override.yml load, which would drop
+    # any operator customization (a DNS-01 Caddyfile mount, an extra service)
+    # on every hourly run.
+    # --remove-orphans: services this file dropped (quip-caddy, quip-postgres,
+    # quip-syslog) would otherwise keep the ports the dashboard binds.
+    docker compose --project-directory "${SCRIPT_DIR}" "${profile_args[@]}" up -d --remove-orphans
 }
 
 install() {

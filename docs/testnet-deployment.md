@@ -12,7 +12,7 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 | Chain spec | `chain-specs/aglais-network.json` (committed; same file every operator uses) |
 | Base path | `data/aglais-chain-db` (mounted at `/data` in the validator container) |
 | Compose v2.20+ | required for `depends_on.required: false` |
-| Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy: ACME + RPC + dashboard) |
+| Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy, in the dashboard container: ACME + RPC + dashboard) |
 
 ## DNS
 
@@ -60,7 +60,7 @@ The base compose stack runs the validator with stock flags. Bootnode operators n
    CERT_EMAIL=ops@example.com
    ```
 
-4. Expect the first start to wait. The miner, dashboard, and faucet gate on the validator's healthcheck, which passes once the node reaches the chain head. On a fresh host that wait covers the whole initial sync. See [Initial sync](../README.md#initial-sync) in the main guide.
+4. Expect the first start to wait, because the miner and the faucet gate on the validator's healthcheck, which passes once the node reaches the chain head. The dashboard skips that gate and starts at once, and its indexer applies its own sync gate instead so it does not index a partial chain. On a fresh host that wait covers the whole initial sync. See [Initial sync](../README.md#initial-sync) in the main guide.
 
 ## Session keys (BABE / GRANDPA)
 

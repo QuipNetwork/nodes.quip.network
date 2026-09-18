@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### The dashboard image runs Caddy, the log collector, and its database
+
+The stack now runs three images: the validator, the miner, and the dashboard.
+The dashboard image runs Caddy, the syslog-ng collector, and the dashboard
+backend under one supervisor. The `caddy`, `postgres`, and `quip-syslog`
+services are removed.
+
+The dashboard stores its index in an embedded Turso database at
+`dashboard-data/dashboard.db`. It rebuilds the index from genesis on first
+start. Existing TLS certificates in `quip-caddy-data` carry over.
+
+Because this stack mounts the TLS certificate volumes under the dashboard
+image's `/data`, the image must include the `/files` allowlist fix, which
+serves only `/files/qblocks/*` and `/files/miners/*` and returns 404 for
+every other path under `/files`.
+
+The dashboard no longer waits for the validator to finish syncing. The
+collector and the `:20049` front door start at once, so the merged log now
+includes the validator's initial sync. The indexer waits for the sync itself.
+
+To upgrade, run `up` once with `--remove-orphans`. The old containers
+otherwise keep ports 20049, 80, 443, and 5514, and the dashboard cannot start.
+`make testnet` and `cron.sh` do this for you. Then delete the old database
+volume with `docker volume rm aglais-pgdata`.
+
+`PUID` and `PGID` set to `0` are no longer accepted. The dashboard image
+refuses `0` and exits. Set both to a positive, nonzero integer.
+
+`QUIP_SYSLOG_TAG` and the `POSTGRES_*` variables no longer do anything.
+Remove them from `.env`.
+
 ## v0.3.2
 
 ### Every service logs to one merged file

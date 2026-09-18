@@ -2,7 +2,7 @@
 # `.env` is docker compose's interpolation source only — a variable reaches a
 # container solely when an `environment:` entry below wires it through. This
 # keeps each service's env contract explicit and stops secrets like
-# POSTGRES_PASSWORD from leaking into every container.
+# DWAVE_API_TOKEN from leaking into every container.
 
 # Runtime uid/gid mapping, shared by every image that does the
 # root-entrypoint -> chown /data -> gosu privilege-drop dance.
@@ -10,17 +10,17 @@ x-runtime-user: &runtime-user
   PUID: ${PUID:-1000}
   PGID: ${PGID:-1000}
 
-# Every long-lived service forwards stdout to the colocated quip-syslog
-# collector, which merges all of them into one host-readable file at
-# data/logs/quip-node.log. This replaces the per-container json-file logs,
-# which died with the container on every Watchtower update.
+# Every long-lived service forwards stdout to the syslog-ng collector inside
+# the dashboard container, which merges all of them into one host-readable
+# file at data/logs/quip-node.log. This replaces the per-container json-file
+# logs, which died with the container on every Watchtower update.
 #
 # `docker compose logs` and `docker logs` still work: Docker keeps a local
 # ring-buffer cache alongside any non-readable driver (dual logging), sized by
 # cache-max-size / cache-max-file below. Do NOT set cache-disabled.
 #
 # The address is a HOST address. The Docker daemon opens this socket, not the
-# container, so the compose network name quip-syslog would not resolve.
+# container, so the compose network name quip-dashboard would not resolve.
 x-logging: &default-logging
   driver: syslog
   options:
@@ -31,51 +31,6 @@ x-logging: &default-logging
     cache-max-size: ${QUIP_LOG_MAX_SIZE:-32m}
     # Quoted: docker rejects cache-max-file as a bare int.
     cache-max-file: "${QUIP_LOG_MAX_FILE:-5}"
-
-# Shared dashboard configuration. The dashboard is always present alongside
-# every node profile; Caddy fronts it on the configured QUIP_HOSTNAME.
-x-dashboard: &dashboard
-  image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-${CHANNEL:-beta}}
-  pull_policy: always
-  container_name: quip-dashboard
-  restart: unless-stopped
-  environment:
-    # Adapter selection is driven by DATABASE_URL presence (postgres when
-    # set, sqlite fallback otherwise) — there is no DB_ADAPTER env var.
-    DATABASE_URL: postgresql://${POSTGRES_USER:-quip}:${POSTGRES_PASSWORD:-quip}@postgres:5432/${POSTGRES_DB:-quip}
-    # Front-door URL the dashboard uses for BOTH the chain RPC (/rpc, for the
-    # indexer) and — by stripping /rpc — the local miner REST surface
-    # (/api/v1, for self-identification). Both must resolve from one host, so
-    # this points at Caddy's stack-internal :8088 listener: /rpc → quip-validator
-    # and /api/v1 → quip-miner. Pointing it straight at quip-validator:9944
-    # would 404 the /api/v1 probe, so the dashboard would mis-identify "self" as
-    # some other reachable on-chain node. Miner-only nodes can override with a
-    # remote front door (e.g. wss://bootnode-1.aglais.quip.network/rpc).
-    QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-caddy:8088/rpc}
-    PORT: "3001"
-    RUN_SERVER: "true"
-    RUN_INDEXER: "true"
-  logging: *default-logging
-  volumes:
-    - ./dashboard-data:/data
-  # Caddy proxies quip-dashboard:3001. An explicit alias — not container_name
-  # DNS — so the localdev override's renamed containers still resolve.
-  networks:
-    default:
-      aliases:
-        - quip-dashboard
-  depends_on:
-    postgres:
-      condition: service_healthy
-    # The indexer scans from genesis, so against a validator that is still
-    # catching up it indexes an empty chain and caches that as the network.
-    # required: false keeps miner-only deployments working, where the dashboard
-    # reads a remote front door (QUIP_VALIDATOR_RPC_URLS) and runs no validator.
-    quip-validator:
-      condition: service_healthy
-      required: false
-    quip-syslog:
-      condition: service_started
 
 services:
   # Both miner images ship the v0.3 quip-coordinator with every miner binary
@@ -116,8 +71,8 @@ services:
     #
     # NOTE: the 2 GiB shm ring above is tmpfs, and tmpfs pages are charged to
     # this same cgroup — so this is ~14 GiB of heap plus the ring, not 16 + 2.
-    # Size it below total RAM with headroom for the colocated validator,
-    # postgres and dashboard; raise it only on a dedicated miner host.
+    # Size it below total RAM with headroom for the colocated validator and
+    # dashboard; raise it only on a dedicated miner host.
     mem_limit: ${QUIP_MINER_MEM_LIMIT:-16g}
     logging: *default-logging
     environment:
@@ -157,8 +112,6 @@ services:
       quip-validator:
         condition: service_healthy
         required: false
-      quip-syslog:
-        condition: service_started
 
   cuda:
     image: registry.gitlab.com/quip.network/quip-miner/v0.3/quip-miner-cuda:${QUIP_MINER_TAG:-${CHANNEL:-beta}}
@@ -218,8 +171,6 @@ services:
       quip-validator:
         condition: service_healthy
         required: false
-      quip-syslog:
-        condition: service_started
     deploy:
       resources:
         reservations:
@@ -262,7 +213,7 @@ services:
       # network). Override in .env to join a private network with its own
       # spec. Local development uses `make localdev` (--chain=dev) instead.
       - ${QUIP_CHAIN_SPEC:-./chain-specs/aglais-network.json}:/etc/quip/chain-spec.json:ro
-      # Sync gate for the miner and the dashboard. Mounted rather than baked in
+      # Sync gate for the miner and the faucet. Mounted rather than baked in
       # because the node image ships no HTTP client to probe its own RPC with.
       - ./scripts/validator-healthcheck.sh:/usr/local/bin/validator-healthcheck:ro
     ports:
@@ -272,9 +223,6 @@ services:
       default:
         aliases:
           - quip-validator
-    depends_on:
-      quip-syslog:
-        condition: service_started
     command:
       # Bootnodes come from the chain spec's bootNodes array. Override per
       # deployment by adding additional `--bootnodes=<multiaddr>` entries
@@ -344,8 +292,6 @@ services:
       quip-validator:
         condition: service_healthy
         required: false
-      quip-syslog:
-        condition: service_started
     command:
       - --node-url=${QUIP_FAUCET_NODE_URL:-ws://quip-validator:9944}
       - --faucet-key=${QUIP_FAUCET_KEY:-//Alice}
@@ -353,56 +299,62 @@ services:
       - --port=8087
       - --rate-limit-seconds=${QUIP_FAUCET_RATE_LIMIT_SECONDS:-60}
 
+  # One container for the dashboard, the public front door, and the merged
+  # log. The image runs the Rust backend, Caddy, and syslog-ng under one
+  # supervisor, and keeps its index in an embedded Turso database at
+  # /data/dashboard.db. Caddy routes /rpc to quip-validator:9944,
+  # /api/faucet/* to quip-faucet:8087, /api/v1/* to quip-miner:8086, and
+  # everything else to the dashboard. An operator who needs a different
+  # Caddyfile mounts one over /etc/caddy/Caddyfile in
+  # docker-compose.override.yml.
   dashboard:
-    <<: *dashboard
-    profiles:
-      - cpu
-      - cuda
-
-  postgres:
-    image: postgres:16
-    container_name: quip-postgres
-    restart: unless-stopped
-    profiles:
-      - cpu
-      - cuda
-    logging: *default-logging
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-quip}
-      POSTGRES_USER: ${POSTGRES_USER:-quip}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quip}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quip} -d ${POSTGRES_DB:-quip}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    depends_on:
-      quip-syslog:
-        condition: service_started
-
-  caddy:
-    image: caddy:2-alpine
+    image: registry.gitlab.com/quip.network/dashboard.quip.network:${QUIP_DASHBOARD_TAG:-${CHANNEL:-beta}}
     pull_policy: always
-    container_name: quip-caddy
+    container_name: quip-dashboard
     restart: unless-stopped
+    # faucet too: a faucet-only stack still needs the collector.
     profiles:
       - cpu
       - cuda
-    logging: *default-logging
+      - faucet
     environment:
+      <<: *runtime-user
+      # The backend dials the validator and the miner directly. Miner-only
+      # nodes point QUIP_VALIDATOR_RPC_URLS at a remote front door instead
+      # (e.g. wss://bootnode-1.aglais.quip.network/rpc).
+      QUIP_VALIDATOR_RPC_URLS: ${QUIP_VALIDATOR_RPC_URLS:-ws://quip-validator:9944}
+      QUIP_MINER_REST_URL: ${QUIP_MINER_REST_URL:-http://quip-miner:8086}
       QUIP_HOSTNAME: ${QUIP_HOSTNAME:-:20049}
       # ACME registration email. Operators set CERT_EMAIL in .env before
       # exposing the site over TLS; the placeholder default keeps Caddy
       # parseable in dev mode where no ACME runs.
       CERT_EMAIL: ${CERT_EMAIL:-hostmaster@localhost}
       ZEROSSL_API_KEY: ${ZEROSSL_API_KEY:-}
+      # Rotation, matching the v0.1 miner: 10MB x 5. The collector checks the
+      # size every QUIP_LOG_CHECK_INTERVAL seconds, so the file can overshoot
+      # by one interval's worth of output before it rotates.
+      QUIP_LOG_MAX_BYTES: ${QUIP_LOG_MAX_BYTES:-10485760}
+      QUIP_LOG_KEEP: ${QUIP_LOG_KEEP:-5}
+      QUIP_LOG_CHECK_INTERVAL: ${QUIP_LOG_CHECK_INTERVAL:-30}
+    # Deliberately NOT *default-logging: the supervisor already forwards the
+    # backend's and Caddy's output to the collector in this container, and
+    # pointing the container's own driver at that collector is a feedback
+    # loop. json-file keeps collector startup errors visible in
+    # `docker compose logs dashboard`.
+    logging:
+      driver: json-file
+      options:
+        max-size: 8m
+        max-file: "2"
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
+      # Index database, /files data, and collector state.
+      - ./dashboard-data:/data
+      # The image sets XDG_DATA_HOME=/data/caddy/data and
+      # XDG_CONFIG_HOME=/data/caddy/config, so these volumes keep the
+      # certificates the standalone caddy container provisioned.
+      - caddy-data:/data/caddy/data
+      - caddy-config:/data/caddy/config
+      - ./data/logs:/logs
     ports:
       # 20049 is the public API port (telemetry + substrate RPC + dashboard).
       # 80/443 are the canonical TLS pair when QUIP_HOSTNAME is a real DNS
@@ -411,70 +363,20 @@ services:
       - "20049:20049"
       - "80:80"
       - "443:443"
-    # The dashboard self-discovers through ws://quip-caddy:8088/rpc. An
-    # explicit alias — not container_name DNS — so the localdev override's
-    # renamed containers still resolve.
+      # Collector, loopback only. The Docker daemon reaches this from the
+      # host; nothing off-box should be able to inject lines into the
+      # operator's log. The host side is overridable (QUIP_LOG_PORT) so a
+      # bind collision on 5514 does not abort `docker compose up`; the
+      # container side stays fixed at 5514.
+      - "127.0.0.1:${QUIP_LOG_PORT:-5514}:5514/udp"
+    # No depends_on. The collector and the front door must be up while the
+    # validator syncs; the indexer pauses backfill until the sync finishes.
     networks:
       default:
         aliases:
-          - quip-caddy
-    depends_on:
-      dashboard:
-        condition: service_started
-      quip-syslog:
-        condition: service_started
-
-  # Merged log collector. Receives every service's stdout through the Docker
-  # syslog driver and writes one file to data/logs/quip-node.log.
-  #
-  # This service deliberately does NOT use *default-logging: pointing the
-  # collector's own driver at the collector is a feedback loop. It stays on
-  # json-file so its startup errors remain visible in `docker compose logs`.
-  quip-syslog:
-    image: linuxserver/syslog-ng:${QUIP_SYSLOG_TAG:-4.11.0}
-    pull_policy: always
-    container_name: quip-syslog
-    restart: unless-stopped
-    profiles:
-      - cpu
-      - cuda
-      - faucet
-    environment:
-      <<: *runtime-user
-      # Rotation, matching the v0.1 miner: 10MB x 5. The supervisor checks the
-      # size every QUIP_LOG_CHECK_INTERVAL seconds, so the file can overshoot
-      # by one interval's worth of output before it rotates.
-      QUIP_LOG_MAX_BYTES: ${QUIP_LOG_MAX_BYTES:-10485760}
-      QUIP_LOG_KEEP: ${QUIP_LOG_KEEP:-5}
-      QUIP_LOG_CHECK_INTERVAL: ${QUIP_LOG_CHECK_INTERVAL:-30}
-    logging:
-      driver: json-file
-      options:
-        max-size: 8m
-        max-file: "2"
-    ports:
-      # Loopback only. The daemon reaches this from the host; nothing off-box
-      # should be able to inject lines into the operator's log. The host side
-      # is overridable (QUIP_LOG_PORT) so a bind collision on 5514 does not
-      # abort `docker compose up` for the whole stack -- the container side
-      # stays fixed at 5514 to match syslog-ng.conf and the test fixture.
-      - "127.0.0.1:${QUIP_LOG_PORT:-5514}:5514/udp"
-    volumes:
-      - ./syslog-ng/syslog-ng.conf:/config/syslog-ng.conf:ro
-      - ./syslog-ng/entrypoint.sh:/entrypoint.sh:ro
-      - ./data/logs:/logs
-    # This override bypasses the image's s6 supervisor, so crond does not run.
-    # entrypoint.sh supervises syslog-ng and handles rotation itself.
-    entrypoint: ["/entrypoint.sh"]
+          - quip-dashboard
 
 volumes:
-  # Renamed from quip-pgdata at the Aglais relaunch. The dashboard indexer
-  # scans from genesis and keys nothing by chain, so reusing the retired
-  # network's volume leaves its blocks and miners in the tables next to
-  # Aglais data. A new name gives every operator a clean index on upgrade
-  # and leaves the old volume on disk to delete when they are ready.
-  pgdata:
-    name: aglais-pgdata
   caddy-data:
     name: quip-caddy-data
   caddy-config:

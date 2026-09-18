@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Report whether the validator has finished its initial sync.
 #
-# Compose gates the miner and the dashboard on this check. Both read the chain
-# through the validator's RPC, and both misbehave against a node that is still
-# catching up: the miner's coordinator preflight reads the runtime at the node's
-# best block, so a node at genesis reports the genesis runtime (`quip/103`,
-# `QuantumPowApi` v1) and the coordinator refuses to drive it, while the
-# dashboard indexer scans from genesis and caches an empty chain as the network.
+# Compose gates the miner and the faucet on this check. Both read or write the
+# chain through the validator's RPC, and both misbehave against a node that is
+# still catching up: the miner's coordinator preflight reads the runtime at
+# the node's best block, so a node at genesis reports the genesis runtime
+# (`quip/103`, `QuantumPowApi` v1) and the coordinator refuses to drive it,
+# while the faucet signs and submits balance transfers that a still-syncing
+# validator cannot process against the current runtime.
 #
 # The node ships no HTTP client (no curl, no wget), so this speaks JSON-RPC over
 # bash's /dev/tcp instead of adding a dependency to the image.

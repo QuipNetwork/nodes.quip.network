@@ -14,7 +14,7 @@
 # This whole stack is namespaced: `make localdev` runs it under the
 # `-p quip-localdev` project, and every service below gets a `-localdev`
 # container_name (plus `quip-localdev-` volume names) so it can never collide
-# with a live `make testnet` stack over the fixed global names (quip-postgres,
+# with a live `make testnet` stack over the fixed global names (quip-dashboard,
 # quip-validator, ...) in the base docker-compose.yml. An explicit
 # container_name opts a container OUT of project-name namespacing, so without
 # these overrides the two stacks would fight over the same global names.
@@ -87,36 +87,25 @@ services:
       - cuda
       - faucet
 
-  # These four are unchanged from the base file except for the namespaced
-  # container_name — they're listed here only so the localdev stack doesn't
-  # reuse the base file's fixed global names.
-  dashboard:
-    container_name: quip-dashboard-localdev
-
-  postgres:
-    container_name: quip-postgres-localdev
-
-  caddy:
-    container_name: quip-caddy-localdev
-
-  # If you ever set QUIP_LOG_PORT to escape a collision with the base stack's
-  # collector, you must change this path too -- two collectors rotating one
+  # Namespaced container_name, plus its own merged log. If you ever set
+  # QUIP_LOG_PORT to escape a collision with the base stack's collector, you
+  # must change this path too -- two collectors rotating one
   # ./data/logs/quip-node.log concurrently interleaves writes and loses
   # rotated generations. Port and path move together, never one alone.
-  quip-syslog:
-    container_name: quip-syslog-localdev
+  dashboard:
+    container_name: quip-dashboard-localdev
     volumes:
-      - ./syslog-ng/syslog-ng.conf:/config/syslog-ng.conf:ro
-      - ./syslog-ng/entrypoint.sh:/entrypoint.sh:ro
       - ./data/logs-localdev:/logs
+      # The Turso index binds to whichever genesis it sees first, so the dev
+      # chain needs its own database, separate from the live-testnet one at
+      # ./dashboard-data.
+      - ./dashboard-data-localdev:/data
 
 # Re-declare the base file's named volumes with a localdev prefix. Services
-# reference them by their compose key (pgdata / caddy-data / caddy-config),
-# which is unchanged — only the global `name` is overridden, so the dev stack
-# gets its own volumes instead of sharing the Aglais stack's aglais-pgdata etc.
+# reference them by their compose key (caddy-data / caddy-config), which is
+# unchanged — only the global `name` is overridden, so the dev stack gets its
+# own volumes instead of sharing the Aglais stack's quip-caddy-data etc.
 volumes:
-  pgdata:
-    name: quip-localdev-pgdata
   caddy-data:
     name: quip-localdev-caddy-data
   caddy-config:
