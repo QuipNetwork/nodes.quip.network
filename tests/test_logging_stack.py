@@ -96,13 +96,16 @@ def test_entrypoint_chowns_the_log_dir_and_reports_a_crash():
     assert "exit 1" in text
 
 
-# The seven services that must forward logs to, and start after, quip-syslog.
-LOGGING_SERVICES = [
-    "cpu", "cuda", "quip-validator", "quip-faucet", "dashboard", "postgres", "caddy",
-]
+# The services that forward their stdout to the collector in the dashboard
+# container. The dashboard itself is not one of them: see
+# test_collector_itself_stays_on_json_file.
+LOGGING_SERVICES = ["cpu", "cuda", "quip-validator", "quip-faucet"]
+
+# Folded into the dashboard image. Nothing may define or wait on them.
+REMOVED_SERVICES = ["quip-syslog", "postgres", "caddy"]
 
 
-def _compose_config():
+def _compose_config(env=None):
     """Ask compose to resolve the file, rather than parsing YAML anchors by hand.
 
     Renders every profile (cpu, cuda, faucet) so `cpu` — the default
@@ -110,7 +113,7 @@ def _compose_config():
     """
     result = subprocess.run(
         ["docker", "compose", "--profile", "cpu", "--profile", "cuda", "--profile", "faucet", "config"],
-        cwd=REPO_ROOT, capture_output=True, text=True,
+        cwd=REPO_ROOT, capture_output=True, text=True, env=env,
     )
     assert result.returncode == 0, result.stderr
     return result.stdout
@@ -120,10 +123,10 @@ def _service_block(config, service):
     """Extract one service's rendered YAML block by indentation.
 
     pyyaml is not available here, and substring/count assertions over the
-    whole file are fooled by the x-logging/x-dashboard anchors compose also
-    dumps back out, so this walks the text per service instead: a compose
-    service is a "  name:" line (2-space indent) followed by its body
-    (4-space indent) until the next 2-space (or 0-space) line.
+    whole file are fooled by the x-logging anchor compose also dumps back
+    out, so this walks the text per service instead: a compose service is a
+    "  name:" line (2-space indent) followed by its body (4-space indent)
+    until the next 2-space (or 0-space) line.
     """
     match = re.search(rf"^  {re.escape(service)}:\n((?:    .+\n)*)", config, re.M)
     assert match, f"service {service!r} not found in the rendered compose config"
@@ -148,36 +151,40 @@ def test_log_port_override_changes_the_published_port_and_syslog_address():
     """C2: QUIP_LOG_PORT must move both the host bind and every producer's
     syslog-address together, so an operator can escape a port collision
     without editing tracked files."""
-    env = dict(os.environ, QUIP_LOG_PORT="5599")
-    result = subprocess.run(
-        ["docker", "compose", "--profile", "cpu", "--profile", "cuda", "--profile", "faucet", "config"],
-        cwd=REPO_ROOT, capture_output=True, text=True, env=env,
-    )
-    assert result.returncode == 0, result.stderr
-    config = result.stdout
+    config = _compose_config(dict(os.environ, QUIP_LOG_PORT="5599"))
     assert "syslog-address: udp://127.0.0.1:5599" in config
-    block = _service_block(config, "quip-syslog")
+    block = _service_block(config, "dashboard")
     assert re.search(
         r'host_ip: 127\.0\.0\.1\n\s*target: 5514\n\s*published: "5599"\n\s*protocol: udp',
         block,
     ), "host port must follow QUIP_LOG_PORT while the container side stays 5514"
 
 
-def test_services_depend_on_the_collector_starting():
+def test_removed_services_are_gone_and_nothing_waits_on_them():
     config = _compose_config()
-    for service in LOGGING_SERVICES:
-        block = _service_block(config, service)
-        assert re.search(r"quip-syslog:\s*\n\s*condition: service_started", block), (
-            f"{service} must depend on quip-syslog with condition: service_started"
+    for service in REMOVED_SERVICES:
+        assert not re.search(rf"^  {re.escape(service)}:\n", config, re.M), (
+            f"{service} now runs inside the dashboard image"
         )
-    # The image declares no healthcheck; service_healthy would hang forever.
-    assert not re.search(r"quip-syslog:\s*\n\s*condition: service_healthy", config)
+        # A leftover depends_on entry would make compose refuse the file, but
+        # only for the profile that pulls the dependent in. Check the text.
+        assert not re.search(rf"^      {re.escape(service)}:\n", config, re.M), (
+            f"a service still depends on {service}"
+        )
+
+
+def test_dashboard_starts_without_waiting_for_the_validator():
+    """The collector and the :20049 front door must come up while the
+    validator is still syncing, or the sync output never reaches the merged
+    log. The indexer's own sync gate handles a syncing validator."""
+    block = _service_block(_compose_config(), "dashboard")
+    assert "depends_on" not in block
 
 
 def test_collector_itself_stays_on_json_file():
     config = _compose_config()
-    block = _service_block(config, "quip-syslog")
-    assert "driver: json-file" in block, "the collector must not use *default-logging"
+    block = _service_block(config, "dashboard")
+    assert "driver: json-file" in block, "the dashboard must not use *default-logging"
     assert "driver: syslog" not in block, "pointing the collector at itself is a feedback loop"
     # cache-disabled would stop `docker logs`/`docker compose logs` from working
     # against every syslog-driver service, not just the collector.
@@ -185,12 +192,30 @@ def test_collector_itself_stays_on_json_file():
 
 
 def test_collector_publishes_on_loopback_only():
-    config = _compose_config()
-    block = _service_block(config, "quip-syslog")
+    block = _service_block(_compose_config(), "dashboard")
     assert re.search(
         r'host_ip: 127\.0\.0\.1\n\s*target: 5514\n\s*published: "5514"\n\s*protocol: udp',
         block,
     ), "collector port must publish on the loopback host_ip, not all interfaces"
+
+
+def test_dashboard_keeps_certificates_and_the_merged_log_path():
+    block = _service_block(_compose_config(), "dashboard")
+    # The image sets XDG_DATA_HOME/XDG_CONFIG_HOME to these paths, so the
+    # existing volumes keep their certificates at the same relative paths.
+    assert re.search(r"source: caddy-data\n\s*target: /data/caddy/data", block)
+    assert re.search(r"source: caddy-config\n\s*target: /data/caddy/config", block)
+    assert re.search(r"source: \S+/data/logs\n\s*target: /logs\n", block)
+    assert re.search(r"source: \S+/dashboard-data\n\s*target: /data\n", block)
+
+
+def test_dashboard_dials_upstreams_directly_and_uses_turso():
+    block = _service_block(_compose_config(), "dashboard")
+    assert "QUIP_VALIDATOR_RPC_URLS: ws://quip-validator:9944" in block
+    assert "QUIP_MINER_REST_URL: http://quip-miner:8086" in block
+    # An empty or absent DATABASE_URL selects the embedded Turso store.
+    assert "DATABASE_URL" not in block
+    assert "quip-caddy" not in block
 
 
 def _emit(tag, message):
