@@ -172,7 +172,7 @@ Caddy auto-provisions a Let's Encrypt cert for `QUIP_HOSTNAME` in production mod
 
 | Challenge | What you need | When to pick |
 |---|---|---|
-| **HTTP-01** (default) | Port **80** reachable from the public internet | Simplest. Works out of the box with `caddy:2-alpine`. Required if you can't or won't share DNS API credentials with the host. |
+| **HTTP-01** (default) | Port **80** reachable from the public internet | Simplest. Works out of the box with the dashboard image. Required if you can't or won't share DNS API credentials with the host. |
 | **DNS-01** | A dashboard image built with your DNS provider's Caddy plugin compiled in (`caddy-dns/cloudflare`, `caddy-dns/route53`, `caddy-dns/digitalocean`, …) and DNS-API credentials wired into the `dashboard` service via a `docker-compose.override.yml` `environment:` entry (values can live in `.env`, but must be wired through — `.env` alone does not reach containers) | Required if your host cannot bind `:80` (firewalled, port already taken, behind a NAT without port-forward). Also supports wildcard certs. |
 
 For HTTP-01, no extra config — just make sure `:80` is open and `CERT_EMAIL` is set in `.env`. For DNS-01, build a dashboard image with your provider's Caddy plugin compiled in (see [Caddy's DNS challenge docs](https://caddyserver.com/docs/automatic-https#dns-challenge)), and add the appropriate `tls { dns <provider> }` block to the Caddyfile you mount over `/etc/caddy/Caddyfile` in `docker-compose.override.yml`. The plumbing is out of scope for this repo because the credential surface is provider-specific.
