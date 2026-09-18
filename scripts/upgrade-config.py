@@ -82,11 +82,11 @@ PROMOTED_GLOBAL_KEYS = (
 
 # v0.2 Caddy fronts the miner's REST API and proxies /api/v1/* to
 # quip-miner:8086 (the upstream image's rest_port default — see
-# the dashboard image's Caddyfile). The miner's telemetry process MUST bind this port
-# for the dashboard indexer + dashboard UI to reach it. v0.1 deployments
-# commonly used 443 (miner-terminated TLS) or other ports, so we force
-# the v0.2 convention regardless of what the v0.1 config said, and emit
-# a warning when overriding.
+# the dashboard image's Caddyfile). The miner's telemetry process MUST bind
+# this port for the dashboard indexer + dashboard UI to reach it. v0.1
+# deployments commonly used 443 (miner-terminated TLS) or other ports, so
+# we force the v0.2 convention regardless of what the v0.1 config said,
+# and emit a warning when overriding.
 CADDY_PROXY_REST_PORT = 8086
 
 # Chain endpoints the v0.3 coordinator uses when [miner].validators is absent.
@@ -100,10 +100,11 @@ DEFAULT_VALIDATORS = ("ws://quip-validator:9944", "ws://127.0.0.1:9944")
 DASHBOARD_LISTEN = f"0.0.0.0:{CADDY_PROXY_REST_PORT}"
 
 # The port upstream's own template binds. config/quip-miner.toml carried it
-# verbatim in the first Aglais commit, and that file seeds data/config.toml on
-# first run, so nodes installed in that window bind a port the dashboard image's Caddyfile does
-# not proxy to. That value is this repo's defect rather than an operator
-# choice, so it is repaired instead of merely reported.
+# verbatim in the first Aglais commit, and that file seeds data/config.toml
+# on first run, so nodes installed in that window bind a port the
+# dashboard image's Caddyfile does not proxy to. That value is this repo's
+# defect rather than an operator choice, so it is repaired instead of
+# merely reported.
 UPSTREAM_TEMPLATE_LISTEN_PORT = 20100
 DASHBOARD_DATA_DIR = "/data/attempts"
 
@@ -243,7 +244,8 @@ def _render_dashboard_section():
     one the dashboard image's Caddyfile proxies /api/v1/* to.
     """
     return [
-        "# REST surface + attempt log. The port must match the dashboard image's Caddyfile.",
+        "# REST surface + attempt log. The port must match the dashboard",
+        "# image's Caddyfile.",
         "[dashboard]",
         f"listen = {_emit_string(DASHBOARD_LISTEN)}",
         f"data_dir = {_emit_string(DASHBOARD_DATA_DIR)}",
@@ -292,7 +294,8 @@ def _render_config(parsed, warnings):
             f"rest_host={global_table.get('rest_host')!r} were dropped. The miner no "
             "longer terminates TLS itself — Caddy does, and it proxies /api/v1/* to "
             f"quip-miner:{CADDY_PROXY_REST_PORT}. To use a different internal port, "
-            "edit [dashboard].listen and the dashboard image's Caddyfile together."
+            "edit [dashboard].listen and the dashboard image's Caddyfile "
+            "together."
         )
 
     # Surface unknown [global] keys so we don't silently lose operator-tuned
@@ -632,8 +635,8 @@ def _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings):
     v0.3 removed both keys and serves the REST surface from [dashboard].listen.
     The coordinator names them verbatim when it rejects a config, so leaving
     them behind is not harmless. Their values are deliberately not carried
-    over: the listen port must match the dashboard image's Caddyfile, and a v0.2 config that
-    disagreed with it was already broken.
+    over: the listen port must match the dashboard image's Caddyfile, and a
+    v0.2 config that disagreed with it was already broken.
     """
     removed = []
     for key in ("rest_port", "rest_host"):
@@ -662,12 +665,13 @@ def _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings):
 
 
 def _check_dashboard_port(lines, dashboard, notes, warnings):
-    """Warn when [dashboard].listen is a port Caddy does not proxy to.
+    """Warn when [dashboard].listen is not port 8086.
 
-    The dashboard finds its own miner by rewriting the configured front-door
-    RPC URL and probing /api/v1 on it, which the dashboard image's Caddyfile forwards to
-    quip-miner:8086. A miner listening anywhere else is unreachable through
-    that proxy and the UI sits on "Connecting to miner". The value is reported
+    Port 8086 is what both the dashboard image's Caddyfile route
+    (/api/v1/*, for browser access) and the QUIP_MINER_REST_URL default
+    expect. The dashboard backend dials QUIP_MINER_REST_URL directly, not
+    through Caddy, so a miner listening on any other port breaks both
+    paths and the UI sits on "Connecting to miner". The value is reported
     rather than rewritten: an operator who moved the port on purpose also
     edited the Caddyfile, and this script does not read it.
     """
@@ -694,11 +698,13 @@ def _check_dashboard_port(lines, dashboard, notes, warnings):
                     )
                     return
     warnings.append(
-        f"[dashboard].listen={listen!r} does not use port {CADDY_PROXY_REST_PORT}, "
-        f"which the dashboard image's Caddyfile proxies /api/v1/* to. The dashboard reaches the "
-        f"local miner only through that proxy, so it will report \"Connecting to "
-        f"miner\" until the two agree. Set the port to {CADDY_PROXY_REST_PORT}, or "
-        "change the dashboard image's Caddyfile to match."
+        f"[dashboard].listen={listen!r} does not use port "
+        f"{CADDY_PROXY_REST_PORT}, which both the dashboard image's "
+        f"Caddyfile route and the QUIP_MINER_REST_URL default expect. "
+        f"The dashboard backend dials QUIP_MINER_REST_URL directly, so "
+        f"it will report \"Connecting to miner\" until the two agree. "
+        f"Set the port to {CADDY_PROXY_REST_PORT}, or change the "
+        "dashboard image's Caddyfile and QUIP_MINER_REST_URL to match."
     )
 
 

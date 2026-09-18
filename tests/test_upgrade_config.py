@@ -77,8 +77,9 @@ def test_conversion_produces_valid_v02_config(fixture, tmp_path):
 def test_v01_rest_port_moves_to_dashboard_listen(tmp_path):
     """v0.1 deployments with rest_port=443 (miner-terminated TLS) do not carry
     that port forward. v0.3 serves the REST surface from [dashboard].listen,
-    pinned to the port the dashboard image's Caddyfile proxies /api/v1/* to. Leaving it at 443
-    produces 502s from Caddy, so the indexer cannot read miner telemetry."""
+    pinned to the port the dashboard image's Caddyfile proxies /api/v1/* to.
+    Leaving it at 443 produces 502s from Caddy, so the indexer cannot read
+    miner telemetry."""
     data_dir = _copy_fixture("qpu", tmp_path)  # qpu fixture has rest_port = 443
     result = _run(data_dir)
     parsed = tomllib.loads((data_dir / "config.toml").read_text())
