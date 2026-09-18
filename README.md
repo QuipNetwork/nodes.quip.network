@@ -311,16 +311,17 @@ validator reaches the chain head. On a fresh install this takes hours, because t
 stack runs an archive node and replays every block from genesis. Later starts return
 at once, because the node keeps its database in `data/aglais-chain-db`.
 
-The miner and the dashboard wait on purpose. Both read the chain through the
-validator, and both give wrong answers against a node that is still catching up:
+The miner waits on purpose. It reads the chain through the validator and
+gives wrong answers against a node that is still catching up: the
+coordinator reads the runtime at the validator's best block. A node at
+genesis reports the genesis runtime, so the coordinator exits with
+`validator runtime quip/103 exposes QuantumPowApi v1, but this coordinator drives
+v2 — upgrade the validator`. The validator does not need an upgrade. It needs to
+finish the sync.
 
-- The miner's coordinator reads the runtime at the validator's best block. A node at
-  genesis reports the genesis runtime, so the coordinator exits with
-  `validator runtime quip/103 exposes QuantumPowApi v1, but this coordinator drives
-  v2 — upgrade the validator`. The validator does not need an upgrade. It needs to
-  finish the sync.
-- The dashboard indexer scans from genesis. A validator at genesis gives it an
-  empty chain, which it caches as the network.
+The dashboard does not depend on the validator's healthcheck, so it starts
+at once. Its indexer applies its own sync gate: while the validator is
+still catching up, the indexer waits and does not index a partial chain.
 
 Watch progress from a second terminal:
 

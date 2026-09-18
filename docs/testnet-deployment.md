@@ -60,7 +60,7 @@ The base compose stack runs the validator with stock flags. Bootnode operators n
    CERT_EMAIL=ops@example.com
    ```
 
-4. Expect the first start to wait. The miner, dashboard, and faucet gate on the validator's healthcheck, which passes once the node reaches the chain head. On a fresh host that wait covers the whole initial sync. See [Initial sync](../README.md#initial-sync) in the main guide.
+4. Expect the first start to wait, because the miner and the faucet gate on the validator's healthcheck, which passes once the node reaches the chain head. The dashboard skips that gate and starts at once, and its indexer applies its own sync gate instead so it does not index a partial chain. On a fresh host that wait covers the whole initial sync. See [Initial sync](../README.md#initial-sync) in the main guide.
 
 ## Session keys (BABE / GRANDPA)
 

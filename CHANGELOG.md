@@ -13,6 +13,11 @@ The dashboard stores its index in an embedded Turso database at
 `dashboard-data/dashboard.db`. It rebuilds the index from genesis on first
 start. Existing TLS certificates in `quip-caddy-data` carry over.
 
+Because this stack mounts the TLS certificate volumes under the dashboard
+image's `/data`, the image must include the `/files` allowlist fix, which
+serves only `/files/qblocks/*` and `/files/miners/*` and returns 404 for
+every other path under `/files`.
+
 The dashboard no longer waits for the validator to finish syncing. The
 collector and the `:20049` front door start at once, so the merged log now
 includes the validator's initial sync. The indexer waits for the sync itself.

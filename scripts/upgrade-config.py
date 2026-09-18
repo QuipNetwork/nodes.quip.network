@@ -289,9 +289,10 @@ def _render_config(parsed, warnings):
 
     if "rest_port" in global_table or "rest_host" in global_table:
         warnings.append(
-            f"REST surface moved to [dashboard].listen = {DASHBOARD_LISTEN}; your v0.1 "
-            f"[global].rest_port={global_table.get('rest_port')!r} / "
-            f"rest_host={global_table.get('rest_host')!r} were dropped. The miner no "
+            f"REST surface moved to [dashboard].listen = {DASHBOARD_LISTEN}; "
+            "your v0.1 [global].rest_port="
+            f"{global_table.get('rest_port')!r} / rest_host="
+            f"{global_table.get('rest_host')!r} were dropped. The miner no "
             "longer terminates TLS itself — Caddy does, and it proxies /api/v1/* to "
             f"quip-miner:{CADDY_PROXY_REST_PORT}. To use a different internal port, "
             "edit [dashboard].listen and the dashboard image's Caddyfile "

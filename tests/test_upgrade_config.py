@@ -77,9 +77,10 @@ def test_conversion_produces_valid_v02_config(fixture, tmp_path):
 def test_v01_rest_port_moves_to_dashboard_listen(tmp_path):
     """v0.1 deployments with rest_port=443 (miner-terminated TLS) do not carry
     that port forward. v0.3 serves the REST surface from [dashboard].listen,
-    pinned to the port the dashboard image's Caddyfile proxies /api/v1/* to.
-    Leaving it at 443 produces 502s from Caddy, so the indexer cannot read
-    miner telemetry."""
+    pinned to 8086: the port the dashboard image's Caddy route (/api/v1/*)
+    and the QUIP_MINER_REST_URL default (http://quip-miner:8086) both
+    expect. Leaving it at 443 produces 502s from Caddy, so the indexer
+    cannot read miner telemetry."""
     data_dir = _copy_fixture("qpu", tmp_path)  # qpu fixture has rest_port = 443
     result = _run(data_dir)
     parsed = tomllib.loads((data_dir / "config.toml").read_text())
@@ -553,10 +554,11 @@ def test_qpu_with_cpu_fallback_does_not_warn(tmp_path):
 
 
 def test_seeded_upstream_dashboard_port_is_repaired(tmp_path):
-    """Port 20100 came from the shipped template, not from the operator. The
-    dashboard reaches the local miner only through Caddy's /api/v1 proxy, which
-    targets 8086, so a node seeded in that window sits on "Connecting to
-    miner". Repair it rather than only reporting a defect this repo shipped."""
+    """Port 20100 came from the shipped template, not from the operator.
+    Port 8086 is what both the dashboard image's Caddy route (/api/v1/*)
+    and the QUIP_MINER_REST_URL default (http://quip-miner:8086) expect,
+    so a node seeded in that window sits on "Connecting to miner". Repair
+    it rather than only reporting a defect this repo shipped."""
     data_dir = _v02_with(
         tmp_path, '\n[dashboard]\nlisten = "0.0.0.0:20100"\ndata_dir = "/data/attempts"\n'
     )
