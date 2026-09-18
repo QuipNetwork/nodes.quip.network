@@ -58,6 +58,38 @@ def _compose_config(env=None):
     return result.stdout
 
 
+def _localdev_compose_config():
+    """Render the opt-in localdev override the same way `make localdev` does.
+
+    Namespaced under the `quip-localdev` project, same as the real dev stack,
+    so this never collides with a live `make testnet` run on this host.
+    """
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-p",
+            "quip-localdev",
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            "docker-compose.localdev.yml",
+            "--profile",
+            "cpu",
+            "--profile",
+            "cuda",
+            "--profile",
+            "faucet",
+            "config",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
 def _service_block(config, service):
     """Extract one service's rendered YAML block by indentation.
 
@@ -150,6 +182,27 @@ def test_dashboard_keeps_certificates_and_the_merged_log_path():
     assert re.search(r"source: caddy-config\n\s*target: /data/caddy/config", block)
     assert re.search(r"source: \S+/data/logs\n\s*target: /logs\n", block)
     assert re.search(r"source: \S+/dashboard-data\n\s*target: /data\n", block)
+
+
+def test_localdev_dashboard_gets_its_own_logs_and_data_paths():
+    """I2: localdev and testnet must not share one Turso index. The store
+    binds to whichever genesis it sees first, so a dashboard that ran
+    against the dev chain fails with a genesis mismatch when later pointed
+    at the live testnet database, and the reverse. Both the /logs and the
+    /data mounts must resolve under the localdev-specific paths."""
+    block = _service_block(_localdev_compose_config(), "dashboard")
+    assert re.search(r"source: \S+/data/logs-localdev\n\s*target: /logs\n", block)
+    assert re.search(
+        r"source: \S+/dashboard-data-localdev\n\s*target: /data\n", block
+    )
+
+
+def test_dashboard_publishes_the_public_ports():
+    block = _service_block(_compose_config(), "dashboard")
+    for port in ("20049", "80", "443"):
+        assert re.search(
+            rf'target: {port}\n\s*published: "{port}"', block
+        ), f"dashboard must publish port {port}"
 
 
 def test_dashboard_dials_upstreams_directly_and_uses_turso():

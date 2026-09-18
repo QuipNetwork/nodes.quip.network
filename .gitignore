@@ -18,6 +18,7 @@ data/keystore.json
 data/signing.json
 data/genesis_block.json
 dashboard-data/
+dashboard-data-localdev/
 nodes.json
 *.bak
 __pycache__/

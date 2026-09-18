@@ -96,6 +96,10 @@ services:
     container_name: quip-dashboard-localdev
     volumes:
       - ./data/logs-localdev:/logs
+      # The Turso index binds to whichever genesis it sees first, so the dev
+      # chain needs its own database, separate from the live-testnet one at
+      # ./dashboard-data.
+      - ./dashboard-data-localdev:/data
 
 # Re-declare the base file's named volumes with a localdev prefix. Services
 # reference them by their compose key (caddy-data / caddy-config), which is
