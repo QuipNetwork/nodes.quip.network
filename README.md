@@ -4,20 +4,23 @@
 
 > **Upgrading from v0.1?** See [Upgrading from v0.1](#upgrading-from-v01) below — the miner config schema changed, container/image names changed, and the substrate validator now owns p2p. There's a one-time `make updateconfig` step plus a few docker compose differences worth scanning before you bring things up.
 
-Quick-start Docker Compose deployment for Quip Network nodes. Supports CPU and CUDA (GPU) mining, with an optional Substrate-based validator and faucet sidecar. Each profile brings up a Caddy reverse proxy, the telemetry dashboard, and a bundled Postgres backend — so operators get a single-URL monitoring UI with automatic TLS out of the box.
+Quick-start Docker Compose deployment for Quip Network nodes. It supports CPU and CUDA (GPU) mining, with an optional Substrate-based validator and faucet sidecar. Each profile brings up the telemetry dashboard, which runs Caddy and its own embedded database, for a single-URL monitoring UI with automatic TLS out of the box.
 
 ## Architecture
 
 ```
 Internet
-  ├─ 80/tcp  → quip-caddy (TLS mode: auto-redirect to :443)
-  ├─ 443/tcp → quip-caddy ─┬─ /rpc/*        → quip-validator:9944  (substrate RPC, validator profiles)
-  │                        ├─ /api/faucet/* → quip-faucet:8087     (faucet profile)
-  │                        ├─ /api/v1/*     → quip-node:80         (miner telemetry)
-  │                        └─ /*            → quip-dashboard:3001  (dashboard SPA)
-  ├─ 20049/tcp → quip-caddy (same routes as :443; the canonical Quip API port)
+  ├─ 80/tcp  → quip-dashboard (Caddy; TLS mode: auto-redirect to :443)
+  ├─ 443/tcp → quip-dashboard (Caddy) ─┬─ /rpc/*        → quip-validator:9944  (substrate RPC)
+  │                                    ├─ /api/faucet/* → quip-faucet:8087     (faucet profile)
+  │                                    ├─ /api/v1/*     → quip-miner:8086      (miner telemetry)
+  │                                    ├─ /files/*      → indexer data files
+  │                                    └─ /*            → dashboard SPA + API
+  ├─ 20049/tcp → quip-dashboard (same routes as :443; the canonical Quip API port)
   └─ 30333/tcp+udp → quip-validator (substrate libp2p, bundled into every profile)
 ```
+
+The stack runs three images: the validator, the miner, and the dashboard. The dashboard container runs Caddy, the syslog-ng log collector, and the dashboard backend under one supervisor. It stores its index in an embedded Turso database at `dashboard-data/dashboard.db`.
 
 Caddy is the single front door for HTTP/WS traffic; libp2p binds `:30333` directly on the validator container. The miner runs purely as an outbound substrate RPC client (no inbound QUIC, no inbound REST) and is reachable only over the compose network. Substrate RPC is at `/rpc`, faucet at `/api/faucet/*`, miner telemetry at `/api/v1/*`, dashboard SPA at `/`. All four are served on **both** `:443` and `:20049` in TLS mode, or on `:20049` HTTP-only in dev mode. `:80` is used for ACME HTTP-01 challenges and auto-redirects to `:443`.
 
@@ -71,6 +74,22 @@ If `.env` pins `QUIP_VALIDATOR_TAG` to a pre-Aglais tag, delete the line. A pin 
 Bootnode operators: copy `node-key` into the new base path and insert the rotated session keys. See [docs/testnet-deployment.md](docs/testnet-deployment.md).
 
 To keep a node on the previous testnet, stay on a checkout from before this change.
+
+### Upgrading to the embedded dashboard
+
+The dashboard image now runs Caddy, the log collector, and its own database. The `caddy`, `postgres`, and `quip-syslog` services are gone. After you pull this version, run `up` once with `--remove-orphans`. The old containers otherwise keep ports 20049, 80, 443, and 5514 and the dashboard cannot start:
+
+```bash
+docker compose --profile cpu up -d --remove-orphans
+```
+
+`make testnet` and `cron.sh` pass `--remove-orphans` for you. Watchtower does not add or remove services, so a node that only Watchtower updates needs this command once.
+
+The dashboard rebuilds its index from genesis into `dashboard-data/dashboard.db`. Existing TLS certificates carry over. When the new dashboard is up, delete the old Postgres volume:
+
+```bash
+docker volume rm aglais-pgdata
+```
 
 ## Upgrading from v0.1
 
@@ -131,7 +150,7 @@ python3 scripts/upgrade-config.py data
 Defaults to `./data`; override with `DATA=/path/to/data`. The converter:
 - moves every entry in `data/` (including your old `config.toml`) into `data/.v0.1_backup/`
 - writes a fresh `data/config.toml` in v0.3 shape, carrying over `node_name`, `public_host`, `public_port`, `log_level`, `node_log` and preserving backend tables (`[cpu]`, `[gpu]`, `[cuda.N]`, `[qpu]`, `[dwave]`, …) verbatim
-- moves the REST surface into `[dashboard]`. v0.3 removed `[miner].rest_host` and `[miner].rest_port`, and the coordinator names both keys when it rejects a config. The converter pins `listen` to `0.0.0.0:8086` because `caddy/Caddyfile` proxies `/api/v1/*` to `quip-miner:8086`. It carries no v0.1 value over: those deployments often set `rest_port = 443` so the miner served TLS itself, which leaves Caddy's upstream unreachable
+- moves the REST surface into `[dashboard]`. v0.3 removed `[miner].rest_host` and `[miner].rest_port`, and the coordinator names both keys when it rejects a config. The converter pins `listen` to `0.0.0.0:8086` because the dashboard image's Caddyfile proxies `/api/v1/*` to `quip-miner:8086`. It carries no v0.1 value over: those deployments often set `rest_port = 443` so the miner served TLS itself, which leaves Caddy's upstream unreachable
 - adds `binary = "quip-cpu-sa"` to a `[cpu]` table that has none. v0.3 selects the miner variant with this key
 - warns when a QPU (`[dwave]`/`[qpu]`) is the only backend. A QPU rejects every job while its access-time budget is spent, and the coordinator drops a rejected job when nothing else can take it, so such a node mines nothing between refills. Adding `[cpu]` absorbs the rejections
 - warns when the config names no mining backend at all. v0.3 refuses to start without one of `[cpu]`, `[cuda.N]`, `[metal]`, `[dwave]`/`[qpu]`, and the converter reports this rather than choosing your hardware for you
@@ -154,17 +173,17 @@ Caddy auto-provisions a Let's Encrypt cert for `QUIP_HOSTNAME` in production mod
 | Challenge | What you need | When to pick |
 |---|---|---|
 | **HTTP-01** (default) | Port **80** reachable from the public internet | Simplest. Works out of the box with `caddy:2-alpine`. Required if you can't or won't share DNS API credentials with the host. |
-| **DNS-01** | A custom Caddy image with your DNS provider plugin compiled in (`caddy-dns/cloudflare`, `caddy-dns/route53`, `caddy-dns/digitalocean`, …) **and** DNS-API credentials wired into the `caddy` service via a `docker-compose.override.yml` `environment:` entry (values can live in `.env`, but must be wired through — `.env` alone doesn't reach containers) | Required if your host can't bind `:80` (firewalled, port already taken, behind a NAT without port-forward). Also supports wildcard certs. |
+| **DNS-01** | A dashboard image built with your DNS provider's Caddy plugin compiled in (`caddy-dns/cloudflare`, `caddy-dns/route53`, `caddy-dns/digitalocean`, …) and DNS-API credentials wired into the `dashboard` service via a `docker-compose.override.yml` `environment:` entry (values can live in `.env`, but must be wired through — `.env` alone does not reach containers) | Required if your host cannot bind `:80` (firewalled, port already taken, behind a NAT without port-forward). Also supports wildcard certs. |
 
-For HTTP-01, no extra config — just make sure `:80` is open and `CERT_EMAIL` is set in `.env`. For DNS-01, build a Caddy image with your provider's plugin (see [Caddy's DNS challenge docs](https://caddyserver.com/docs/automatic-https#dns-challenge)), swap the `image:` line for the `caddy` service in `docker-compose.yml`, and add the appropriate `tls { dns <provider> }` block in `caddy/Caddyfile`. The plumbing is out of scope for this repo because the credential surface is provider-specific.
+For HTTP-01, no extra config — just make sure `:80` is open and `CERT_EMAIL` is set in `.env`. For DNS-01, build a dashboard image with your provider's Caddy plugin compiled in (see [Caddy's DNS challenge docs](https://caddyserver.com/docs/automatic-https#dns-challenge)), and add the appropriate `tls { dns <provider> }` block to the Caddyfile you mount over `/etc/caddy/Caddyfile` in `docker-compose.override.yml`. The plumbing is out of scope for this repo because the credential surface is provider-specific.
 
 ### 5. Bring the v0.2 stack up
 
 ```bash
-# CPU miner + bundled local validator + dashboard + Caddy
+# CPU miner + bundled local validator + dashboard
 docker compose --profile cpu up -d
 
-# CUDA miner + bundled local validator + dashboard + Caddy
+# CUDA miner + bundled local validator + dashboard
 docker compose --profile cuda up -d
 
 # Layer in the faucet (dev only)
@@ -250,7 +269,6 @@ The comma-separated production form is required so a single Let's Encrypt cert c
 Also set:
 - `CERT_EMAIL` — required when running in TLS / production mode.
 - `DWAVE_API_TOKEN` — required only for QPU / D-Wave mining. Set `DWAVE_API_SOLVER` too on a real QPU: without it the Ocean SDK picks your account default, which may not be the Advantage2 system the chain topology targets. `DWAVE_API_KEY` is the old name and still maps forward, but nothing reads it directly.
-- `POSTGRES_PASSWORD` — optional; defaults to `quip`. Postgres isn't published to the host, so the default is safe for local use.
 - `QUIP_VALIDATOR_TAG`, `VALIDATOR_NAME` — see `env.example` for the validator and faucet sections.
 
 The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-miner v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000).
@@ -273,8 +291,8 @@ Two primary profiles are available. Plain `docker compose ...` always boots the 
 
 | Profile | Includes | Notes |
 |---|---|---|
-| `cpu` | miner (CPU), local validator, dashboard, postgres, Caddy | Default. Uncomment `[qpu]` + `[dwave]` in `config.toml` for D-Wave. |
-| `cuda` | miner (CUDA), local validator, dashboard, postgres, Caddy | Requires NVIDIA GPU + Docker GPU runtime. |
+| `cpu` | miner (CPU), local validator, dashboard | Default. Uncomment `[qpu]` + `[dwave]` in `config.toml` for D-Wave. |
+| `cuda` | miner (CUDA), local validator, dashboard | Requires NVIDIA GPU + Docker GPU runtime. |
 
 Every node bundles its own substrate validator — there's no separate validator-only or miner-only profile.
 
@@ -341,13 +359,13 @@ With the default `QUIP_HOSTNAME=:20049`, Caddy serves HTTP on port 20049 with no
 
 For production, set `QUIP_HOSTNAME` to the comma-separated form (`example.com, example.com:20049`) and `CERT_EMAIL` to a valid address. Caddy provisions a Let's Encrypt cert via HTTP-01 on `:80`, serves HTTPS on `:443` and `:20049`, and redirects HTTP to HTTPS. Port 80 must be reachable from the internet during provisioning and every renewal — if it isn't (firewalled host, port already taken, NAT without port-forward), see the [DNS-01 alternative](#4-decide-on-the-acme-challenge-type) in the upgrade flow.
 
-The default ACME issuer is **Let's Encrypt**, with **ZeroSSL** as an automatic fallback (built-in to Caddy 2.6+). To pin ZeroSSL as the primary issuer — useful if you want longer cert validity or have hit LE rate limits — uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
+The default ACME issuer is **Let's Encrypt**, with **ZeroSSL** as an automatic fallback (built-in to Caddy 2.6+). To pin ZeroSSL as the primary issuer — useful if you want longer cert validity or have hit LE rate limits — mount a Caddyfile that sets `cert_issuer zerossl` over `/etc/caddy/Caddyfile` in `docker-compose.override.yml`. Start from `deploy/Caddyfile` in the dashboard repository, and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
 
 Certs persist in the `quip-caddy-data` named volume across container recreations.
 
 ### Dashboard
 
-The dashboard indexer polls the local validator over the compose network (`ws://quip-validator:9944`) for both chain state and the miner REST surface that Caddy fronts on the same host. The node's RPC is **not** exposed to the host directly — all external traffic goes through Caddy.
+The dashboard polls the local validator (`ws://quip-validator:9944`) and the local miner (`http://quip-miner:8086`) over the compose network. The node's RPC is **not** exposed to the host directly. All external traffic goes through Caddy in the dashboard container.
 
 For miner-only nodes (no colocated validator), point the indexer at a public full node via `QUIP_VALIDATOR_RPC_URLS` in `.env`. The value is comma-separated; the indexer rotates through the list on failure:
 
@@ -355,7 +373,7 @@ For miner-only nodes (no colocated validator), point the indexer at a public ful
 QUIP_VALIDATOR_RPC_URLS=wss://cpu-1.nodes.quip.network/rpc
 ```
 
-Telemetry persists in the `aglais-pgdata` named volume, so it survives container recreations.
+The index persists in `dashboard-data/dashboard.db`, so it survives container recreations. While the validator is still syncing, the indexer waits and does not index a partial chain.
 
 ### Validator setup
 
@@ -540,11 +558,11 @@ Every service except the collector writes to one merged file, `data/logs/quip-no
 
     make logs
 
-This tails the merged file with a 200-line window. If the file does not exist yet (first boot), it falls back to `docker compose logs -f --tail=50` across the whole project. The collector is the exception — it stays on Docker's json-file driver so its own startup errors remain readable when the merged file is broken or missing. Read collector errors with `docker compose logs quip-syslog`. The collector output does not appear in the merged file.
+This tails the merged file with a 200-line window. If the file does not exist yet (first boot), it falls back to `docker compose logs -f --tail=50` across the whole project. The collector is the exception — it stays on Docker's json-file driver so its own startup errors remain readable when the merged file is broken or missing. Read collector errors with `docker compose logs dashboard`. The collector output does not appear in the merged file.
 
 The collector rotates the file at 10 MB and keeps 5 generations, the same as the v0.1 miner did. `docker compose logs` also still works, served from Docker's local cache rather than from the file.
 
-**The merged file is best-effort, by design.** Every service reaches the collector over UDP so that a stalled or restarting collector never blocks a producer's startup (see `syslog-ng/syslog-ng.conf`). The tradeoff is dropped lines under a burst: a single container emitting a 20000-line burst can lose around 15 percent of them at the kernel's default receive buffer. `docker compose logs <service>` (or `make logs` equivalents per service) reads from Docker's own cache instead of the network and does not drop lines; treat the merged file as a convenience view and the per-service logs as the record of truth when every line matters. The collector raises its UDP receive buffer (`so-rcvbuf`) to narrow the loss window, but the kernel still caps it at `net.core.rmem_max`; raise that on the host if you need it higher, for example `sysctl -w net.core.rmem_max=8388608`.
+**The merged file is best-effort, by design.** Every service reaches the collector over UDP so that a stalled or restarting collector never blocks a producer's startup (see `deploy/syslog-ng/syslog-ng.conf` in the dashboard repository). The tradeoff is dropped lines under a burst: a single container emitting a 20000-line burst can lose around 15 percent of them at the kernel's default receive buffer. `docker compose logs <service>` (or `make logs` equivalents per service) reads from Docker's own cache instead of the network and does not drop lines; treat the merged file as a convenience view and the per-service logs as the record of truth when every line matters. The collector raises its UDP receive buffer (`so-rcvbuf`) to narrow the loss window, but the kernel still caps it at `net.core.rmem_max`; raise that on the host if you need it higher, for example `sysctl -w net.core.rmem_max=8388608`.
 
 **The merged file is operational, not an audit log.** Any local process on the host can send a UDP datagram to the collector's port and have it appear as a line in `data/logs/quip-node.log`, tagged with whatever program name it chooses. Do not rely on this file to prove what a service did or did not log.
 
@@ -552,7 +570,7 @@ A single log line over 16 KB (for example a substrate panic or a RocksDB error d
 
 **Known limitation:** `make logs` always tails `data/logs/quip-node.log`, the testnet stack's merged file. The localdev stack writes its own merged log to `data/logs-localdev/quip-node.log`, so `make logs` never shows localdev's merged output — read it directly, or use `docker compose logs -f <service>` against the localdev project.
 
-**If `docker compose up` fails to start any service**, the collector's fixed host port may already be in use — a leftover container, a host syslog daemon, or another stack. Check with `ss -lunp | grep 5514` and free the port, or set `QUIP_LOG_PORT` in `.env` to move the collector off 5514.
+**If the dashboard container fails to start**, its fixed host port may already be in use — a leftover container, a host syslog daemon, or another stack. Check with `ss -lunp | grep 5514` and free the port, or set `QUIP_LOG_PORT` in `.env` to move the collector off 5514. No other service depends on the dashboard container, so this failure does not block the validator, miner, or faucet.
 
 If you have v0.1 logs, move any existing `data/logs/quip-node.log*` files into `data/logs/archive-v0.1/` before first start. The rotation would otherwise interleave stale v0.1 miner output with new merged output. Use these commands:
 
@@ -561,7 +579,7 @@ mkdir -p data/logs/archive-v0.1
 mv data/logs/quip-node.log* data/logs/archive-v0.1/ 2>/dev/null || true
 ```
 
-Run this only before first start, or stop the stack first. Moving the live file out from under a running collector unlinks it while syslog-ng still holds it open; the supervisor detects this and restarts syslog-ng automatically within one `QUIP_LOG_CHECK_INTERVAL`, but you can avoid even that gap by stopping the stack first or running `docker restart quip-syslog` immediately afterward.
+Run this only before first start, or stop the stack first. Moving the live file out from under a running collector unlinks it while syslog-ng still holds it open; the supervisor detects this and restarts syslog-ng automatically within one `QUIP_LOG_CHECK_INTERVAL`, but you can avoid even that gap by stopping the stack first or running `docker restart quip-dashboard` immediately afterward.
 
 ## Maintenance
 
@@ -572,7 +590,7 @@ Run this only before first start, or stop the stack first. Moving the live file 
 | View validator logs | `docker compose logs -f quip-validator` |
 | View faucet logs | `docker compose logs -f quip-faucet` |
 | View dashboard logs | `docker compose logs -f dashboard` |
-| View Caddy / TLS logs | `docker compose logs -f caddy` |
+| View Caddy / TLS logs | `docker compose logs -f dashboard` |
 | View auto-update logs | `tail -f data/update.log` |
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
@@ -585,8 +603,7 @@ Changing `QUIP_LOG_MAX_BYTES` or `QUIP_LOG_KEEP` requires a container recreate, 
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | Node + validator + faucet + dashboard + postgres + caddy services |
-| `caddy/Caddyfile` | Reverse-proxy + auto-TLS config for the Caddy front door |
+| `docker-compose.yml` | Validator + miner + faucet + dashboard services |
 | `config/config.example.toml` | Canonical v0.3 config example, documented key by key (reference only, not mounted) |
 | `data/config.toml` | Active node configuration (copied from a template) |
 | `data/config.cpu.toml` | CPU mode template (base for QPU/D-Wave; uncomment `[qpu]` + `[dwave]`) |
@@ -602,7 +619,6 @@ Changing `QUIP_LOG_MAX_BYTES` or `QUIP_LOG_KEEP` requires a container recreate, 
 | `config/quip-miner.toml` | Miner first-run config template (Aglais faucet_url), mounted over the image's `/app/config.toml` |
 | `config/advantage2-system1-h0.spec.json` | Topology spec the network mines against (`0xe66d…a02d`). Input to `seed-chain`, not read at runtime |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs; `make localdev` copies the profile's variant to `data/config.toml` |
-| `dashboard-data/` | Dashboard auxiliary state (bind mount, gitignored) |
-| `aglais-pgdata` | Docker named volume for Postgres data (was `quip-pgdata` before Aglais) |
-| `quip-caddy-data` | Docker named volume for Caddy's certs + state |
-| `quip-caddy-config` | Docker named volume for Caddy's autosaved config |
+| `dashboard-data/` | Dashboard index database (`dashboard.db`), `/files` data, and collector state (bind mount, gitignored) |
+| `quip-caddy-data` | Docker named volume for Caddy's certs + state, mounted into the dashboard container |
+| `quip-caddy-config` | Docker named volume for Caddy's autosaved config, mounted into the dashboard container |

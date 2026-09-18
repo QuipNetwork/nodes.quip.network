@@ -12,7 +12,7 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 | Chain spec | `chain-specs/aglais-network.json` (committed; same file every operator uses) |
 | Base path | `data/aglais-chain-db` (mounted at `/data` in the validator container) |
 | Compose v2.20+ | required for `depends_on.required: false` |
-| Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy: ACME + RPC + dashboard) |
+| Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy, in the dashboard container: ACME + RPC + dashboard) |
 
 ## DNS
 

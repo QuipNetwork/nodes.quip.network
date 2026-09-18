@@ -209,10 +209,6 @@ CERT_EMAIL=admin@example.com
 
 # D-Wave API token (QPU only)
 DWAVE_API_KEY=
-
-# Optional: Postgres isn't exposed to the host, so the default ('quip') is fine
-# for most deployments. Override for defense-in-depth on shared droplets.
-# POSTGRES_PASSWORD=<strong-password>
 ```
 
 `.env` is docker compose's interpolation source, not a blanket container env file — a variable only reaches a container when `docker-compose.yml` wires it through an `environment:` entry (see `env.example` for the documented knobs).
@@ -229,11 +225,11 @@ docker compose --profile cuda up -d
 
 QPU / D-Wave mining runs under the `cpu` profile — there is no separate `qpu` profile in v0.2. Uncomment the `[qpu]` and `[dwave]` sections in `data/config.toml` and set `DWAVE_API_KEY` in `.env`; the miner's mode resolution picks it up on the next restart.
 
-Each command brings up the selected node plus `quip-dashboard`, `quip-postgres`, and `quip-caddy`. Caddy provisions a Let's Encrypt cert for `QUIP_HOSTNAME` on first startup and serves both the dashboard SPA (at `/`) and node REST (at `/api/v1/*`) over HTTPS. Open your browser to `https://mynode.example.com/`.
+Each command brings up the selected node plus `quip-dashboard`. The dashboard container runs Caddy, which provisions a Let's Encrypt cert for `QUIP_HOSTNAME` on first startup and serves both the dashboard SPA (at `/`) and node REST (at `/api/v1/*`) over HTTPS. Open your browser to `https://mynode.example.com/`.
 
 Caddy's certs persist in the `quip-caddy-data` named volume; renewals happen automatically (no cron or sidecar needed).
 
-The dashboard, Postgres, and Caddy are always bundled with the `cpu` and `cuda` profiles in v0.2 — the v0.1 `-nodash` profile variants no longer exist.
+The dashboard is always bundled with the `cpu` and `cuda` profiles in v0.2 — the v0.1 `-nodash` profile variants no longer exist.
 
 ### 4.6 Set up auto-updates
 
@@ -272,11 +268,11 @@ Caddy manages TLS for the HTTP(S) front-door automatically:
 
 Caddy provisions a cert via **Let's Encrypt** on first startup (ZeroSSL as automatic fallback if LE fails), serves HTTPS on 443, redirects HTTP→HTTPS, and renews on its own internal timer. Certificates persist in the `quip-caddy-data` named volume.
 
-To pin ZeroSSL as the primary issuer, uncomment the `cert_issuer zerossl` line in `caddy/Caddyfile` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
+To pin ZeroSSL as the primary issuer, mount your own Caddyfile over `/etc/caddy/Caddyfile` in `docker-compose.override.yml` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
 
 **QUIC transport TLS** on port 20049 (node-to-node peer traffic) is a separate concern. The default configuration uses TOFU + `trust.db` for peer identity. See [TLS.md](https://gitlab.com/quip.network/quip-miner/-/blob/main/docker/TLS.md) in quip-miner for wiring real certs into QUIC.
 
-For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced options, edit `caddy/Caddyfile` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
+For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced options, mount your own Caddyfile over `/etc/caddy/Caddyfile` in `docker-compose.override.yml` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
 
 ---
 
@@ -286,7 +282,7 @@ For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced
 |------|---------|
 | View node logs | `docker compose logs -f cpu` (or `cuda`, `qpu`) |
 | View dashboard logs | `docker compose logs -f dashboard` |
-| View Caddy / TLS logs | `docker compose logs -f caddy` |
+| View Caddy / TLS logs | `docker compose logs -f dashboard` |
 | View auto-update logs | `tail -f /var/log/quip-update.log` |
 | Restart after config change | `docker compose restart cpu` |
 | Restart after .env change | `docker compose --profile cpu up -d --force-recreate` |
@@ -299,7 +295,7 @@ For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced
 | Edit config | `nano data/config.toml && docker compose restart cpu` |
 | Edit env vars | `nano .env && docker compose --profile cpu up -d --force-recreate` |
 | Inspect cert (live) | `openssl s_client -connect mynode.example.com:443 -servername mynode.example.com -brief </dev/null` |
-| Force cert renewal | `docker exec quip-caddy caddy reload --config /etc/caddy/Caddyfile` (normally not needed — Caddy renews on its own) |
+| Force cert renewal | `docker restart quip-dashboard` (normally not needed — Caddy renews on its own. The image sets `admin off`, so `caddy reload` has no admin endpoint to talk to.) |
 
 ---
 
