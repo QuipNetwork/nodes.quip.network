@@ -213,7 +213,7 @@ services:
       # network). Override in .env to join a private network with its own
       # spec. Local development uses `make localdev` (--chain=dev) instead.
       - ${QUIP_CHAIN_SPEC:-./chain-specs/aglais-network.json}:/etc/quip/chain-spec.json:ro
-      # Sync gate for the miner and the dashboard. Mounted rather than baked in
+      # Sync gate for the miner and the faucet. Mounted rather than baked in
       # because the node image ships no HTTP client to probe its own RPC with.
       - ./scripts/validator-healthcheck.sh:/usr/local/bin/validator-healthcheck:ro
     ports:

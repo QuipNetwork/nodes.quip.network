@@ -104,7 +104,7 @@ docker stop quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 
 docker rm   quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 2>/dev/null || true
 ```
 
-Your data is in bind mounts (`./data/`, `./dashboard-data/`) and named volumes (`aglais-pgdata`, `quip-caddy-data`, `quip-caddy-config`), so removing containers is non-destructive.
+Your data is in bind mounts (`./data/`, `./dashboard-data/`) and volumes (`quip-caddy-data`, `quip-caddy-config`, plus `aglais-pgdata` if you have not yet deleted the pre-embedded dashboard's Postgres volume), so removing containers is non-destructive.
 
 ### 2. Pull the v0.2 repo
 
@@ -271,7 +271,7 @@ Also set:
 - `DWAVE_API_TOKEN` — required only for QPU / D-Wave mining. Set `DWAVE_API_SOLVER` too on a real QPU: without it the Ocean SDK picks your account default, which may not be the Advantage2 system the chain topology targets. `DWAVE_API_KEY` is the old name and still maps forward, but nothing reads it directly.
 - `QUIP_VALIDATOR_TAG`, `VALIDATOR_NAME` — see `env.example` for the validator and faucet sections.
 
-The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-miner v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000).
+The `printf` line seeds `.env` with your host's uid/gid so files under `./data/` stay editable without `sudo`. Since quip-miner v0.1.7 the node runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID` on start (default 1000). Run the `printf` line as the non-root user who owns the checkout: a root shell writes `PUID=0`, and the dashboard image refuses that value and exits.
 
 > **Note:** `.env` is docker compose's interpolation source, not a blanket container env file. A variable only reaches a container when `docker-compose.yml` explicitly wires it through an `environment:` entry — custom variables you add to `.env` are invisible to containers unless you also wire them via a `docker-compose.override.yml`.
 
@@ -503,7 +503,7 @@ To join a private network with its own spec, point `QUIP_CHAIN_SPEC` in `.env` a
 
 ### Faucet
 
-The `faucet` profile adds a small HTTP service that signs `Balances.transferKeepAlive` extrinsics from a funded URI-derived account. **Currently dev-only**: the funder is one of `//Alice`, `//Bob`, or `//Alice//stash` and must be funded at genesis on the chain you're running against. Real-keystore support is on the roadmap (see https://gitlab.com/quip.network/faucet).
+The `faucet` profile adds a small HTTP service that signs `Balances.transferKeepAlive` extrinsics from a funded URI-derived account. **Currently dev-only**: the funder is one of `//Alice`, `//Bob`, or `//Alice//stash` and must be funded at genesis on the chain you are running against. Real-keystore support is on the roadmap (see https://gitlab.com/quip.network/faucet). A faucet-only stack (`--profile faucet` with no `cpu` or `cuda` profile) also brings up the dashboard container, which binds ports `80`, `443`, and `20049`.
 
 ```bash
 # Activate alongside any validator profile (one or both):

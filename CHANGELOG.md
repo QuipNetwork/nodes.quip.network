@@ -22,6 +22,9 @@ otherwise keep ports 20049, 80, 443, and 5514, and the dashboard cannot start.
 `make testnet` and `cron.sh` do this for you. Then delete the old database
 volume with `docker volume rm aglais-pgdata`.
 
+`PUID` and `PGID` set to `0` are no longer accepted. The dashboard image
+refuses `0` and exits. Set both to a positive, nonzero integer.
+
 `QUIP_SYSLOG_TAG` and the `POSTGRES_*` variables no longer do anything.
 Remove them from `.env`.
 

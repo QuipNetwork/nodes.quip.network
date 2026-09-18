@@ -193,7 +193,9 @@ printf 'PUID=%s\nPGID=%s\n' "$(id -u)" "$(id -g)" >> .env
 chmod 600 .env
 ```
 
-The `printf` line seeds `.env` with your host's uid/gid. Since quip-miner v0.1.7 the node container runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID`; aligning these with your `deploy` user's uid keeps files editable without `sudo`.
+The `printf` line seeds `.env` with your host's uid/gid. Since quip-miner v0.1.7 the node container runs as a non-root `quip` user and chowns `/data` to match `PUID`/`PGID`. Matching these to your `deploy` user's uid keeps files editable without `sudo`.
+
+Run the `printf` line as `deploy`, not as `root`. A root shell writes `PUID=0`, and the dashboard image refuses that value and exits.
 
 Edit `.env`:
 

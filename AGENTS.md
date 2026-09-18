@@ -36,7 +36,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | `scripts/upgrade-config.py` | v0.1 → v0.2 config converter. Stdlib-only Python 3.11+. Migrates both `data/config.toml` and the sibling `.env`. |
 | `scripts/newest-tags.py` | Resolves the newest published tag per quip image from the GitLab registry, newest by publish time. Two anonymous GraphQL requests, stdlib-only Python 3.11+. Takes the output path as its argument, so `make localdev` calls it as `newest-tags.py data/localdev.tags.env` rather than redirecting — the script reads the previous run's tags and reuses them when the registry does not answer. Echoes back any `QUIP_*_TAG` already pinned in `.env` or the environment. |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle). |
-| `scripts/validator-healthcheck.sh` | The validator's docker healthcheck, bind-mounted to `/usr/local/bin/validator-healthcheck`. Reads `system_health` over bash's `/dev/tcp`, because the node image ships no HTTP client. Exits 0 when the node is not major-syncing and either has peers or runs a chain that expects none. The miner, dashboard, and faucet gate on it with `condition: service_healthy`. |
+| `scripts/validator-healthcheck.sh` | The validator's docker healthcheck, bind-mounted to `/usr/local/bin/validator-healthcheck`. Reads `system_health` over bash's `/dev/tcp`, because the node image ships no HTTP client. Exits 0 when the node is not major-syncing and either has peers or runs a chain that expects none. The miner and the faucet gate on it with `condition: service_healthy`. |
 | `tests/fixtures/v0.1/{cpu,cuda,qpu,already-v0.2}/data/config.toml` | Trimmed real operator configs used by the converter test suite. |
 | `tests/test_upgrade_config.py` | 34 pytest cases against `scripts/upgrade-config.py`. |
 | `cron.sh` | Auto-update sidecar (hourly cron) — detects running profiles from container names, pulls + recreates only on digest change. |
@@ -198,11 +198,11 @@ Every key that was "miner-as-peer" (P2P, TLS at the miner, gossip, TOFU pinning)
 
 | v0.1 var | v0.2 destination | Notes |
 |---|---|---|
-| `QUIP_NODE_URL` | `QUIP_VALIDATOR_RPC_URLS` | Plural; comma-separated; drives both chain indexing and the miner REST surface that Caddy fronts on the same host. |
+| `QUIP_NODE_URL` | `QUIP_VALIDATOR_RPC_URLS` | Plural, comma-separated. Drives chain indexing. The dashboard dials the miner REST surface directly through `QUIP_MINER_REST_URL`, not through this variable. |
 | `QUIP_NODE_TOKEN` | dropped | Bearer-token access control is now deployment-layer. |
 | `QUIP_HOSTNAME` | unchanged (semantics expanded) | Drives Caddy listen + TLS. Comma-separated form (`host, host:20049`) needed for prod TLS. |
 | `QUIP_VALIDATORS`, `QUIP_FAUCET_URL`, `QUIP_REST_PORT`, `QUIP_REST_HOST`, `QUIP_SIGNER_KEY` | **dead** (config-driven) | The v0.2.1-rc miner images have no configuration env vars — set `[miner].validators` / `.faucet_url` / `.signer_key` and `[dashboard].listen` in `data/config.toml` instead. `make updateconfig` backfills these keys and strips the dead lines from `.env`. |
-| `QUIP_VALIDATOR_TAG`, `QUIP_VALIDATOR_RPC_URLS`, `QUIP_FAUCET_TAG`, `QUIP_FAUCET_NODE_URL`, `QUIP_FAUCET_KEY`, `QUIP_FAUCET_RATE_LIMIT_SECONDS`, `QUIP_FAUCET_ALLOW_ANY_CHAIN`, `VALIDATOR_NAME`, `CERT_EMAIL`, `ZEROSSL_API_KEY`, `QUIP_MINER_CPUSET`, `QUIP_CHAIN_SPEC`, `QUIP_DASHBOARD_TAG` | new | See `env.example` for inline docs. |
+| `QUIP_VALIDATOR_TAG`, `QUIP_VALIDATOR_RPC_URLS`, `QUIP_FAUCET_TAG`, `QUIP_FAUCET_NODE_URL`, `QUIP_FAUCET_KEY`, `QUIP_FAUCET_RATE_LIMIT_SECONDS`, `QUIP_FAUCET_ALLOW_ANY_CHAIN`, `VALIDATOR_NAME`, `CERT_EMAIL`, `ZEROSSL_API_KEY`, `QUIP_MINER_CPUSET`, `QUIP_CHAIN_SPEC`, `QUIP_DASHBOARD_TAG`, `QUIP_MINER_REST_URL` | new | See `env.example` for inline docs. |
 
 `.env` is compose's interpolation source only — there is no blanket `env_file:` anywhere in `docker-compose.yml`, so a variable reaches a container only when an `environment:` entry wires it through. `SUBSTRATE_BOOTNODES` was dropped entirely (compose can't split one env var into multiple `--bootnodes` argv tokens; use a `docker-compose.override.yml`).
 
@@ -217,7 +217,7 @@ The converter (`scripts/upgrade-config.py`) migrates `.env` alongside `data/conf
 | Override file | `docker-compose.override.yml` (auto-loaded by `docker compose`) | `docker-compose.localdev.yml` (**opt-in**; not auto-loaded). Renamed deliberately so plain `docker compose --profile cpu up -d` boots testnet instead of silently flipping to `--chain=dev`. Operators who carry over a stale `docker-compose.override.yml` working-copy file will keep getting the dev chain until they remove it. |
 | Faucet | not present | `quip-faucet` service in the `faucet` profile (testnet) or wired into `cpu`/`cuda` via the localdev override (dev). |
 | Bootstrap | manual | The `cpu`/`cuda` miner self-bootstraps on startup: it auto-funds via `[miner].faucet_url` in `data/config.toml` and registers itself in `QuantumPow.Miners` (retrying until the validator has synced) before it begins mining. No separate bootstrap container. |
-| Dashboard indexer | `QUIP_NODE_URL` (miner REST) | `QUIP_VALIDATOR_RPC_URLS` (substrate WS — drives both chain indexing and miner-REST polling on the same Caddy-fronted host). |
+| Dashboard indexer | `QUIP_NODE_URL` (miner REST) | `QUIP_VALIDATOR_RPC_URLS` (substrate WS — drives chain indexing) and `QUIP_MINER_REST_URL` (dialed directly against the miner's REST port, not through Caddy). |
 
 ## Network / port layout
 
