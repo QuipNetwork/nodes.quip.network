@@ -65,23 +65,10 @@ BACKUP_DIRNAME = ".v0.1_backup"
 
 # Backend tables preserved verbatim from v0.1 → v0.2 (semantics + key
 # inheritance unchanged in the v0.2 loader).
-PRESERVED_BACKEND_TABLES = frozenset(
-    {
-        "cpu",
-        "gpu",
-        "cuda",
-        "nvidia",
-        "metal",
-        "modal",
-        "qpu",
-        "dwave",
-        "ibm",
-        "braket",
-        "pasqal",
-        "ionq",
-        "origin",
-    }
-)
+PRESERVED_BACKEND_TABLES = frozenset({
+    "cpu", "gpu", "cuda", "nvidia", "metal", "modal",
+    "qpu", "dwave", "ibm", "braket", "pasqal", "ionq", "origin",
+})
 
 # v0.1 [global] keys that map directly into v0.2 [miner].
 # rest_port is intentionally NOT in this list — see CADDY_PROXY_REST_PORT below.
@@ -161,31 +148,16 @@ CONFIG_BACKFILL_BACKUP = "config.toml.pre-backfill.bak"
 
 # v0.1 [global] keys we drop SILENTLY (no operator action needed; backup
 # retains the original value).
-SILENT_DROP_GLOBAL_KEYS = frozenset(
-    {
-        "secret",
-        "genesis_config",
-        "auto_mine",
-        "peer",
-        "timeout",
-        "heartbeat_interval",
-        "heartbeat_timeout",
-        "fanout",
-        "verify_tls",
-        "ca_bundle",
-        "tls_cert_file",
-        "tls_key_file",
-        "rest_tls_cert_file",
-        "rest_tls_key_file",
-        "tofu",
-        "trust_db",
-        "rest_insecure_port",
-        "webroot",
-        "http_log",
-        "telemetry_enabled",
-        "telemetry_dir",
-    }
-)
+SILENT_DROP_GLOBAL_KEYS = frozenset({
+    "secret", "genesis_config", "auto_mine", "peer",
+    "timeout", "heartbeat_interval", "heartbeat_timeout", "fanout",
+    "verify_tls", "ca_bundle",
+    "tls_cert_file", "tls_key_file",
+    "rest_tls_cert_file", "rest_tls_key_file",
+    "tofu", "trust_db",
+    "rest_insecure_port", "webroot", "http_log",
+    "telemetry_enabled", "telemetry_dir",
+})
 
 # v0.1 [global] keys we drop with a LOUD warning. v0.2 silently aliases
 # listen → rest_host and port → rest_port in the loader, but the
@@ -200,13 +172,11 @@ DROPPED_TOP_TABLES = frozenset({"telemetry_api"})
 
 def _emit_string(s):
     if any(c in s for c in '\n\r\t\\"'):
-        escaped = (
-            s.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-        )
+        escaped = (s.replace("\\", "\\\\")
+                    .replace('"', '\\"')
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                    .replace("\t", "\\t"))
         return f'"{escaped}"'
     return f'"{s}"'
 
@@ -242,12 +212,8 @@ def _emit_table(prefix, table, lines):
 def _render_miner_section(harvested):
     """Render the [miner] table from harvested v0.1 [global] values."""
     out = []
-    out.append(
-        "# quip-miner v0.3 [miner] schema, written by scripts/upgrade-config.py."
-    )
-    out.append(
-        "# See config/config.example.toml in the nodes.quip.network repo for the"
-    )
+    out.append("# quip-miner v0.3 [miner] schema, written by scripts/upgrade-config.py.")
+    out.append("# See config/config.example.toml in the nodes.quip.network repo for the")
     out.append("# canonical example with inline documentation for every key.")
     out.append("")
     out.append("[miner]")
@@ -258,9 +224,7 @@ def _render_miner_section(harvested):
         out.append(f"    {_emit_string(url)},")
     out.append("]")
 
-    out.append(
-        f"signer_key = {_emit_string(harvested.get('signer_key', '/data/keystore.json'))}"
-    )
+    out.append(f'signer_key = {_emit_string(harvested.get("signer_key", "/data/keystore.json"))}')
     out.append(f"faucet_url = {_emit_string(FAUCET_TESTNET_URL)}")
 
     for key in ("node_name", "public_host", "public_port", "log_level", "node_log"):
@@ -333,12 +297,10 @@ def _render_config(parsed, warnings):
 
     # Surface unknown [global] keys so we don't silently lose operator-tuned
     # values we haven't catalogued.
-    known = (
-        set(PROMOTED_GLOBAL_KEYS)
-        | {"rest_port", "rest_host"}
-        | SILENT_DROP_GLOBAL_KEYS
-        | LOUD_DROP_GLOBAL_KEYS
-    )
+    known = (set(PROMOTED_GLOBAL_KEYS)
+             | {"rest_port", "rest_host"}
+             | SILENT_DROP_GLOBAL_KEYS
+             | LOUD_DROP_GLOBAL_KEYS)
     for key in global_table:
         if key not in known:
             warnings.append(
@@ -408,7 +370,7 @@ def _preflight_writable(data_dir):
             f"error: {data_dir} is not writable by uid={os.getuid()}.\n"
             f"  The converter needs to create {data_dir}/{BACKUP_DIRNAME}/ and\n"
             f"  move every existing entry into it. Fix ownership first:\n"
-            f'    sudo chown -R "$(id -u):$(id -g)" {data_dir}\n'
+            f"    sudo chown -R \"$(id -u):$(id -g)\" {data_dir}\n"
             f"  Then re-run.\n"
         )
         sys.exit(1)
@@ -441,7 +403,7 @@ def _backup(data_dir, dry_run):
             sys.stderr.write(
                 f"error: can't move {p} into {backup}: {exc}\n"
                 f"  Fix ownership first:\n"
-                f'    sudo chown -R "$(id -u):$(id -g)" {data_dir}\n'
+                f"    sudo chown -R \"$(id -u):$(id -g)\" {data_dir}\n"
                 f"  Then `mv {backup}/* {data_dir}/`, rmdir {backup}, and re-run.\n"
             )
             sys.exit(1)
@@ -502,7 +464,8 @@ def _upgrade_env_file(env_path, dry_run, warnings):
 
     if dry_run:
         warnings.append(
-            f"[dry-run] would back up {env_path} → {backup}; " + "; ".join(summary_bits)
+            f"[dry-run] would back up {env_path} → {backup}; "
+            + "; ".join(summary_bits)
         )
         return
 
@@ -601,7 +564,9 @@ def _backfill_validators(lines, bounds, miner, env_vals, notes):
     """Handle the validators key; returns insert lines (possibly empty)."""
     mstart, mend = bounds
     env_validators = [
-        u.strip() for u in env_vals.get("QUIP_VALIDATORS", "").split(",") if u.strip()
+        u.strip()
+        for u in env_vals.get("QUIP_VALIDATORS", "").split(",")
+        if u.strip()
     ]
     if miner.get("validators") == []:
         removed = _remove_toml_array(lines, mstart, mend, "validators")
@@ -614,7 +579,9 @@ def _backfill_validators(lines, bounds, miner, env_vals, notes):
     if env_validators and not miner.get("validators"):
         notes.append("wrote validators from the .env QUIP_VALIDATORS value")
         return [
-            "validators = [" + ", ".join(_emit_string(u) for u in env_validators) + "]"
+            "validators = ["
+            + ", ".join(_emit_string(u) for u in env_validators)
+            + "]"
         ]
     return []
 
@@ -629,9 +596,7 @@ def _backfill_faucet(lines, bounds, miner, env_vals, notes, warnings):
                 m = pat.match(lines[i])
                 if m:
                     lines[i] = (
-                        m.group(1)
-                        + _emit_string(FAUCET_TESTNET_URL)
-                        + lines[i][m.end() :]
+                        m.group(1) + _emit_string(FAUCET_TESTNET_URL) + lines[i][m.end():]
                     )
                     break
             notes.append(f"faucet_url {miner['faucet_url']} -> {FAUCET_TESTNET_URL}")
@@ -683,8 +648,7 @@ def _migrate_rest_to_dashboard(lines, bounds, miner, parsed, notes, warnings):
                 break
     if removed:
         notes.append(
-            "removed v0.2-only "
-            + ", ".join(removed)
+            "removed v0.2-only " + ", ".join(removed)
             + " (v0.3 serves REST from [dashboard].listen)"
         )
 
@@ -732,8 +696,8 @@ def _check_dashboard_port(lines, dashboard, notes, warnings):
     warnings.append(
         f"[dashboard].listen={listen!r} does not use port {CADDY_PROXY_REST_PORT}, "
         f"which the dashboard image's Caddyfile proxies /api/v1/* to. The dashboard reaches the "
-        f'local miner only through that proxy, so it will report "Connecting to '
-        f'miner" until the two agree. Set the port to {CADDY_PROXY_REST_PORT}, or '
+        f"local miner only through that proxy, so it will report \"Connecting to "
+        f"miner\" until the two agree. Set the port to {CADDY_PROXY_REST_PORT}, or "
         "change the dashboard image's Caddyfile to match."
     )
 
@@ -807,7 +771,9 @@ def _backfill_v02(config_path, parsed, env_vals, dry_run, warnings):
     if not backup.exists():
         shutil.copy2(config_path, backup)
     config_path.write_text("\n".join(lines) + "\n")
-    warnings.append(f"config backfill (backup: {backup.name}): " + "; ".join(notes))
+    warnings.append(
+        f"config backfill (backup: {backup.name}): " + "; ".join(notes)
+    )
     return True
 
 

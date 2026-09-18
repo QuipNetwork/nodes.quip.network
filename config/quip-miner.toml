@@ -2,8 +2,8 @@
 #
 # Mirrors docker/config.toml from quip-miner v0.3.1-rc3-aglais-prerelease with
 # two changes: faucet_url points at the Aglais faucet, and [dashboard].listen
-# uses 8086 rather than upstream's 20100 because the dashboard image's Caddy proxies
-# /api/v1/* to quip-miner:8086. Leaving upstream's port here would seed a fresh
+# uses 8086 rather than upstream's 20100 because the dashboard image's Caddy
+# proxies /api/v1/* to quip-miner:8086. Leaving upstream's port here would seed
 # operator with a REST surface Caddy cannot reach. docker-compose.yml mounts
 # this file over the image's /app/config.toml, and the image entrypoint copies
 # it to /data/config.toml on first run. After that /data/config.toml is the
@@ -145,10 +145,10 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 #   GET /healthz, GET /qblocks, GET /<qblock_id>/attempts.jsonl
 #   GET /api/v1/status, GET /api/v1/stats, GET /api/v1/mining/attempts
 # Listen on 0.0.0.0:8086 so the Caddy reverse_proxy for /api/v1/* matches (see
-# deploy/Caddyfile in dashboard.quip.network). Use the mounted /data volume so history
-# survives restarts. Omit the section to disable. Both keys are required, and a
-# bind that fails only warns. data_dir is served as a static web root, so put
-# nothing private there.
+# deploy/Caddyfile in dashboard.quip.network). Use the mounted /data volume so
+# history survives restarts. Omit the section to disable. Both keys are required
+# and a bind that fails only warns. data_dir is served as a static web root, so
+# put nothing private there.
 [dashboard]
 listen = "0.0.0.0:8086"
 data_dir = "/data/attempts"

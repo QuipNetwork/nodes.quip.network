@@ -294,9 +294,9 @@ binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
 # and serves /healthz, /qblocks, /<qblock_id>/attempts.jsonl, /api/v1/status,
 # /api/v1/stats, and /api/v1/mining/attempts.
 #
-# The port must match the dashboard image's Caddyfile, which proxies /api/v1/* to
-# quip-miner:8086. Upstream's own template says 20100; this stack uses 8086 and
-# keeps the two in sync. Change one and you must change the other. Keep
+# The port must match the dashboard image's Caddyfile, which proxies /api/v1/*
+# to quip-miner:8086. Upstream's own template says 20100; this stack uses 8086
+# and keeps the two in sync. Change one and you must change the other. Keep
 # data_dir under the mounted /data volume so history survives restarts. Omit
 # the whole section to disable.
 #
