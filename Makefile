@@ -42,7 +42,7 @@ help:
 	@echo "                         (PROFILE=cuda also starts the host NVIDIA MPS daemon)"
 	@echo "  make localdev          Wipe chain, bring up self-contained dev stack"
 	@echo "                         (validator on --chain=dev, faucet, seeded topology,"
-	@echo "                          registered miner, dashboard, caddy)"
+	@echo "                          registered miner, dashboard)"
 	@echo "  make updateconfig      Convert a v0.1 data/config.toml to the v0.2 [miner]"
 	@echo "                         schema (backs up originals to data/.v0.1_backup/)."
 	@echo "                         Override the dir with DATA=/path/to/data."
@@ -52,7 +52,7 @@ help:
 	@echo "  make down              Tear down both profile sets"
 	@echo "  make logs              Tail merged stack log (data/logs/quip-node.log)"
 	@echo "  make clean-chain       Wipe data/aglais-chain-db/chains"
-	@echo "  make clean             Full reset: down + wipe chain, pgdata volume, dashboard-data"
+	@echo "  make clean             Full reset: down + wipe chain, old pgdata volumes, dashboard-data"
 	@echo ""
 	@echo "Variables (override on cmdline):"
 	@echo "  PROFILE=$(PROFILE)         compose profile (cpu | cuda; faucet layers additively)"
@@ -98,9 +98,12 @@ endif
 # Live Quip Testnet. Plain `docker compose` is testnet now (the localdev
 # override is opt-in via -f docker-compose.localdev.yml, not auto-loaded).
 # PROFILE=cuda also starts the host MPS daemon first (require-mps).
+# --remove-orphans stops containers for services this file no longer
+# defines (quip-caddy, quip-postgres, quip-syslog before the dashboard image
+# absorbed them). Left running, they hold the ports the dashboard binds.
 testnet: require-env require-mps
 	$(COMPOSE) --profile $(PROFILE) pull
-	$(COMPOSE) --profile $(PROFILE) up -d
+	$(COMPOSE) --profile $(PROFILE) up -d --remove-orphans
 	@echo ""
 	@echo "testnet stack up. tail logs: make logs"
 
@@ -124,7 +127,9 @@ localdev: require-env down clean-chain
 	@echo "localdev image tags:"
 	@cat $(TAGS_ENV)
 	$(COMPOSE_TAGGED) --profile $(PROFILE) pull
-	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d quip-validator quip-faucet
+	# dashboard first-class here: it holds the collector, and nothing else
+	# waits for it, so starting it late would drop the validator's first lines.
+	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d --remove-orphans dashboard quip-validator quip-faucet
 	@echo "waiting for validator to produce blocks..."
 	@sleep 12
 	$(COMPOSE_TAGGED) --profile $(PROFILE) run --rm \
@@ -133,7 +138,7 @@ localdev: require-env down clean-chain
 	# The cpu/cuda miner self-bootstraps (register + fund) on startup.
 	# Topology must already be seeded above, otherwise the miner's
 	# self-bootstrap fails inside its retry loop.
-	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d
+	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d --remove-orphans
 	@echo ""
 	@echo "localdev stack up. tail logs: tail -F data/logs-localdev/quip-node.log"
 	@echo ""
@@ -190,11 +195,11 @@ clean-chain:
 	    rm -rf data/aglais-chain-db/chains; \
 	fi
 
-# Full reset. Tears the stack down, wipes the chain, removes the postgres
-# data volume (fixes the cross-project `aglais-pgdata` mismatch that breaks
-# the dashboard migration with "password authentication failed"), and
-# clears dashboard-data so the indexer re-syncs from scratch alongside the
-# fresh DB. Destructive — do not run on a production node without a dump.
+# Full reset. Tears the stack down, wipes the chain, removes the Postgres
+# volumes left from before the dashboard moved to its embedded store
+# (aglais-pgdata, quip-localdev-pgdata), and clears dashboard-data so the
+# indexer re-syncs from scratch. Destructive — do not run on a production
+# node without a backup of dashboard-data.
 clean: down clean-chain
 	-docker volume rm aglais-pgdata quip-localdev-pgdata 2>/dev/null
 	@if command -v trash >/dev/null 2>&1; then \

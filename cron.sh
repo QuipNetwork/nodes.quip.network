@@ -9,9 +9,9 @@ COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 LOG_FILE="${SCRIPT_DIR}/data/update.log"
 
 # Print the --profile arguments needed to recreate whatever the operator is
-# currently running, one flag pair per line. cpu and cuda profiles now
-# bundle the validator + dashboard + caddy by default; the faucet profile
-# layers additively when quip-faucet is also up.
+# currently running, one flag pair per line. cpu and cuda profiles bundle
+# the validator + dashboard by default; the faucet profile layers
+# additively when quip-faucet is also up.
 detect_profile() {
     local running
     running=$(docker ps --format '{{.Names}}')
@@ -36,7 +36,9 @@ update() {
     fi
 
     echo "$(date -Iseconds) Checking for updates (${profile_args[*]})"
-    docker compose -f "${COMPOSE_FILE}" "${profile_args[@]}" up -d
+    # --remove-orphans: services this file dropped (quip-caddy, quip-postgres,
+    # quip-syslog) would otherwise keep the ports the dashboard binds.
+    docker compose -f "${COMPOSE_FILE}" "${profile_args[@]}" up -d --remove-orphans
 }
 
 install() {
