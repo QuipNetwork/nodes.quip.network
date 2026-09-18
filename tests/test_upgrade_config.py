@@ -77,7 +77,7 @@ def test_conversion_produces_valid_v02_config(fixture, tmp_path):
 def test_v01_rest_port_moves_to_dashboard_listen(tmp_path):
     """v0.1 deployments with rest_port=443 (miner-terminated TLS) do not carry
     that port forward. v0.3 serves the REST surface from [dashboard].listen,
-    pinned to the port caddy/Caddyfile proxies /api/v1/* to. Leaving it at 443
+    pinned to the port the dashboard image's Caddyfile proxies /api/v1/* to. Leaving it at 443
     produces 502s from Caddy, so the indexer cannot read miner telemetry."""
     data_dir = _copy_fixture("qpu", tmp_path)  # qpu fixture has rest_port = 443
     result = _run(data_dir)
@@ -582,7 +582,7 @@ def test_host_is_preserved_when_repairing_the_port(tmp_path):
 
 def test_other_port_mismatch_is_reported_not_rewritten(tmp_path):
     """Any other port is an operator choice, and they would have edited
-    caddy/Caddyfile to match. Report it and leave it alone."""
+    the dashboard image's Caddyfile to match. Report it and leave it alone."""
     data_dir = _v02_with(
         tmp_path, '\n[dashboard]\nlisten = "0.0.0.0:9000"\ndata_dir = "/data/attempts"\n'
     )

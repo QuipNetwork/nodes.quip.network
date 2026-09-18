@@ -15,7 +15,7 @@ node_name = "localdev-miner"
 public_host = "127.0.0.1"
 public_port = 20049
 
-# Attempt dashboard and v1 REST. 8086 matches the Caddyfile's
+# Attempt dashboard and v1 REST. 8086 matches the dashboard image's Caddyfile's
 # `reverse_proxy quip-miner:8086` — keep the two in sync.
 [dashboard]
 listen = "0.0.0.0:8086"
