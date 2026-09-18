@@ -52,7 +52,8 @@ help:
 	@echo "  make down              Tear down both profile sets"
 	@echo "  make logs              Tail merged stack log (data/logs/quip-node.log)"
 	@echo "  make clean-chain       Wipe data/aglais-chain-db/chains"
-	@echo "  make clean             Full reset: down + wipe chain, old pgdata volumes, dashboard-data"
+	@echo "  make clean             Full reset: down + wipe chain, old pgdata volumes,"
+	@echo "                         dashboard-data, dashboard-data-localdev"
 	@echo ""
 	@echo "Variables (override on cmdline):"
 	@echo "  PROFILE=$(PROFILE)         compose profile (cpu | cuda; faucet layers additively)"
@@ -175,8 +176,8 @@ pull: require-env
 # torn down on its own. Harmless on hosts that only ran one of them — compose
 # no-ops on a project with nothing running.
 down:
-	$(COMPOSE) --profile $(PROFILE) --profile faucet down
-	$(COMPOSE_LOCALDEV) --profile $(PROFILE) --profile faucet down
+	$(COMPOSE) --profile $(PROFILE) --profile faucet down --remove-orphans
+	$(COMPOSE_LOCALDEV) --profile $(PROFILE) --profile faucet down --remove-orphans
 
 logs:
 	@if [ -f data/logs/quip-node.log ]; then \
@@ -197,15 +198,15 @@ clean-chain:
 
 # Full reset. Tears the stack down, wipes the chain, removes the Postgres
 # volumes left from before the dashboard moved to its embedded store
-# (aglais-pgdata, quip-localdev-pgdata), and clears dashboard-data so the
-# indexer re-syncs from scratch. Destructive — do not run on a production
-# node without a backup of dashboard-data.
+# (aglais-pgdata, quip-localdev-pgdata), and clears dashboard-data and
+# dashboard-data-localdev so both indexers re-sync from scratch. Destructive
+# — do not run on a production node without a backup of dashboard-data.
 clean: down clean-chain
 	-docker volume rm aglais-pgdata quip-localdev-pgdata 2>/dev/null
 	@if command -v trash >/dev/null 2>&1; then \
-	    trash dashboard-data 2>/dev/null || true; \
+	    trash dashboard-data dashboard-data-localdev 2>/dev/null || true; \
 	else \
-	    rm -rf dashboard-data; \
+	    rm -rf dashboard-data dashboard-data-localdev; \
 	fi
 
 # Answer "what will I actually pull" in one command. CHANNEL names a moving

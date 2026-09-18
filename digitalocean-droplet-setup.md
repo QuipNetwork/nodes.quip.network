@@ -239,10 +239,10 @@ Add an hourly cron job to check for new images and recreate the container only w
 crontab -e
 
 # Add this line (runs hourly at minute 0):
-0 * * * * cd ~/app && docker compose --profile <profile> up -d >> /var/log/quip-update.log 2>&1
+0 * * * * cd ~/app && docker compose --profile <profile> up -d --remove-orphans >> /var/log/quip-update.log 2>&1
 ```
 
-`docker compose up -d` is a no-op when the image hasn't changed — the node keeps running uninterrupted between actual updates.
+`docker compose up -d` is a no-op when the image has not changed — the node keeps running uninterrupted between actual updates. `--remove-orphans` clears containers from a dropped or replaced service, so an old container never keeps a port the new stack needs.
 
 ---
 
