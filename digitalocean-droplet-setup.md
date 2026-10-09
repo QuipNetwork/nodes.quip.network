@@ -272,7 +272,7 @@ Caddy provisions a cert via **Let's Encrypt** on first startup (ZeroSSL as autom
 
 To pin ZeroSSL as the primary issuer, mount your own Caddyfile over `/etc/caddy/Caddyfile` in `docker-compose.override.yml` and optionally set `ZEROSSL_API_KEY` in `.env` for pre-provisioned EAB credentials.
 
-**QUIC transport TLS** on port 20049 (node-to-node peer traffic) is a separate concern. The default configuration uses TOFU + `trust.db` for peer identity. See [TLS.md](https://gitlab.com/quip.network/quip-miner/-/blob/main/docker/TLS.md) in quip-miner for wiring real certs into QUIC.
+**QUIC transport TLS** on port 20049 (node-to-node peer traffic) is a separate concern. The default configuration uses TOFU + `trust.db` for peer identity. See [TLS.md](https://gitlab.com/quip.network/quip-solver/-/blob/main/docker/TLS.md) in quip-miner for wiring real certs into QUIC.
 
 For DNS-01 challenges, alternate CAs (Let's Encrypt, Buypass), or other advanced options, mount your own Caddyfile over `/etc/caddy/Caddyfile` in `docker-compose.override.yml` — see the [Caddy docs](https://caddyserver.com/docs/automatic-https).
 

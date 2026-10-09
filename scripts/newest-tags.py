@@ -59,8 +59,8 @@ GRAPHQL = "https://gitlab.com/api/graphql"
 # accepts /[_A-Za-z][_0-9A-Za-z]*/.
 IMAGES = {
     "QUIP_MINER_TAG": (
-        "quip.network/quip-miner",
-        "quip.network/quip-miner/v0.3/quip-miner",
+        "quip.network/quip-solver",
+        "quip.network/quip-solver/v0.3/quip-solver",
     ),
     "QUIP_VALIDATOR_TAG": (
         "quip.network/quip-validator",
