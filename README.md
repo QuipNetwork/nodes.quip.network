@@ -190,7 +190,7 @@ docker compose --profile cuda up -d
 docker compose --profile cpu --profile faucet up -d
 ```
 
-Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the latest images (`quip-miner`, `quip-miner-cuda`, `quip-network-node`, `quip-faucet`, and the dashboard) and auto-generates `data/keystore.json` for the miner. The miner self-bootstraps on startup: it funds the new account via the Aglais faucet (`https://faucet.aglais.quip.network`, set as `faucet_url` in the seeded `data/config.toml`) and registers it in the chain's `QuantumPow.Miners` map before it starts producing proofs. Comment out `faucet_url` in `data/config.toml` (and restart) to opt out of faucet-funding if you've pre-funded the account yourself.
+Both `cpu` and `cuda` profiles bundle a local substrate validator by default — there's no separate validator profile anymore. The first start pulls the latest images (`quip-solver`, `quip-solver-cuda`, `quip-network-node`, `quip-faucet`, and the dashboard) and auto-generates `data/keystore.json` for the miner. The miner self-bootstraps on startup: it funds the new account via the Aglais faucet (`https://faucet.aglais.quip.network`, set as `faucet_url` in the seeded `data/config.toml`) and registers it in the chain's `QuantumPow.Miners` map before it starts producing proofs. Comment out `faucet_url` in `data/config.toml` (and restart) to opt out of faucet-funding if you've pre-funded the account yourself.
 
 Check it came up cleanly:
 

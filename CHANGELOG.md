@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Miner images moved to the quip-solver registry path
+
+The upstream `quip-miner` repository is now `quip-solver`. The stack pulls the
+miner images from `registry.gitlab.com/quip.network/quip-solver/v0.3/quip-solver`
+and `.../v0.3/quip-solver-cuda`. The old `quip-miner/v0.3/...` paths no longer
+resolve, so a stack on an older `docker-compose.yml` stops getting image
+updates until it pulls this change. The compose service name `quip-miner` and
+the `QUIP_MINER_*` variables do not change.
+
 ### The dashboard image runs Caddy, the log collector, and its database
 
 The stack now runs three images: the validator, the miner, and the dashboard.
