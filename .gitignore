@@ -10,6 +10,7 @@ data/certs/
 data/telemetry/
 data/logs/
 data/webroot/
+data/aglais-119-chain-db/
 data/aglais-chain-db/
 data/validator-data/
 data/node-key
@@ -17,6 +18,7 @@ data/wallet/
 data/keystore.json
 data/signing.json
 data/genesis_block.json
+dashboard-data-119/
 dashboard-data/
 dashboard-data-localdev/
 nodes.json

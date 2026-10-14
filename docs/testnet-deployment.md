@@ -8,9 +8,9 @@ This repo is infrastructure-as-code. No operator secrets (mnemonics, node keys) 
 
 | Item | Value |
 |---|---|
-| Image | The tag `CHANNEL` names, `beta` by default. Both channels are Aglais, and the validator publishes no non-rc v0.3 build yet, so they resolve to the same image. Run `make show-channel` to resolve what you will pull. `latest` is pre-Aglais. |
+| Image | The tag `CHANNEL` names, `beta` by default. Both channels are Aglais. Run `make show-channel` to resolve what you will pull. |
 | Chain spec | `chain-specs/aglais-network.json` (committed; same file every operator uses) |
-| Base path | `data/aglais-chain-db` (mounted at `/data` in the validator container) |
+| Base path | `data/aglais-119-chain-db` (mounted at `/data` in the validator container) |
 | Compose v2.20+ | required for `depends_on.required: false` |
 | Inbound ports | `30333/tcp+udp` (libp2p p2p), `80/tcp`+`443/tcp`+`20049/tcp` (Caddy, in the dashboard container: ACME + RPC + dashboard) |
 
@@ -32,18 +32,18 @@ DNS is operator-managed; this repo does not provision A records.
 
 Each bootnode operator holds the private libp2p key whose hash matches the peer id embedded in the chain spec. The key is generated once (offline) by the network operator who derives all three slots, then distributed to the bootnode operators via the procedure in [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/main/docs/testnet-keys.md).
 
-On the host, place the key at `./data/aglais-chain-db/node-key`, which is `/data/node-key` inside the validator container (the directory is gitignored). Pass it with the `--node-key-file` flag. The peer ids did not change at the Aglais relaunch, so an operator moving from the previous testnet copies the key from the old base path:
+On the host, place the key at `./data/aglais-119-chain-db/node-key`, which is `/data/node-key` inside the validator container (the directory is gitignored). Pass it with the `--node-key-file` flag. The peer ids stay the same across Aglais relaunches, so copy the key from the old base path:
 
 ```bash
-mkdir -p data/aglais-chain-db
-cp data/validator-data/node-key data/aglais-chain-db/node-key
+mkdir -p data/aglais-119-chain-db
+cp data/aglais-chain-db/node-key data/aglais-119-chain-db/node-key
 ```
 
 ```bash
 # Verify the on-disk key matches the published peer id (run on the host)
-docker run --rm -v "$PWD/data/aglais-chain-db:/data:ro" \
+docker run --rm -v "$PWD/data/aglais-119-chain-db:/data:ro" \
   --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.3.0-rc1 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.4.0 \
   key inspect-node-key --file /data/node-key
 # Output: 12D3KooW... — must match this slot's peer id in chain-specs/aglais-network.json
 ```
@@ -64,7 +64,7 @@ The base compose stack runs the validator with stock flags. Bootnode operators n
 
 ## Session keys (BABE / GRANDPA)
 
-After the validator's first boot, insert hybrid BABE and GRANDPA keys derived from the operator's session mnemonic. The Aglais genesis pins the rotated H4/H2 (FN-DSA-512) public keys that each operator derived from the existing mnemonic. The keystore lives under the new base path, so keys inserted for the previous testnet are not visible to the Aglais validator: insert them again. Procedure from [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/main/docs/testnet-keys.md), executed inside the validator container so the keystore mount picks them up:
+After the validator's first boot, insert hybrid BABE and GRANDPA keys derived from the operator's session mnemonic. The Aglais genesis pins the rotated H4/H2 (FN-DSA-512) public keys that each operator derived from the existing mnemonic. The keystore lives under the base path, so keys inserted for an earlier genesis are not visible to the new validator: insert them again. Procedure from [`quip-validator/docs/testnet-keys.md`](https://gitlab.com/quip.network/quip-validator/-/blob/main/docs/testnet-keys.md), executed inside the validator container so the keystore mount picks them up:
 
 ```bash
 docker compose exec quip-validator \
@@ -82,7 +82,7 @@ docker compose exec quip-validator \
     --suri "<bip39-mnemonic-here>"
 ```
 
-`insert-hybrid-key` derives the key-type id from the scheme (`babe` for H444, `gran` for H244). `--suri` also accepts the path of a file that holds the mnemonic. The stock `key insert --scheme sr25519` and `--scheme ed25519` commands produce pre-Aglais keys that the runtime 117 genesis does not accept.
+`insert-hybrid-key` derives the key-type id from the scheme (`babe` for H444, `gran` for H244). `--suri` also accepts the path of a file that holds the mnemonic. The stock `key insert --scheme sr25519` and `--scheme ed25519` commands produce pre-Aglais keys that the runtime 119 genesis does not accept.
 
 Restart the validator after inserting both keys:
 

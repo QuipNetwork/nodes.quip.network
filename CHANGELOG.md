@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Aglais relaunch on runtime spec 119
+
+Aglais restarted from a fresh genesis, `0x542a…ebecb`, on runtime spec 119
+(validator v0.4.0, transaction version 7). The chain name, chain id,
+bootnodes, and faucet are unchanged.
+
+- `chain-specs/aglais-network.json` is the v0.4.0 export of the
+  `quip-testnet` preset.
+- The validator base path is `data/aglais-119-chain-db` and the dashboard
+  data directory is `dashboard-data-119`. The chain id is unchanged and the
+  dashboard index binds to the first genesis it sees, so neither old
+  directory can serve the new chain. Both stay in place until you delete
+  them.
+- The README's seeding command registers topology `0xcbec…70e7` with a start
+  energy of -14700 (`--max-energy-milli=-14700000`).
+- The docs no longer say that `latest` is pre-Aglais or that the validator
+  has no non-rc build.
+
+**Operator impact**: stop the stack, `git pull`, start it again. A validator
+with session keys inserts them again. See "Aglais relaunch (spec 119)" in the
+README.
+
 ### Miner images moved to the quip-solver registry path
 
 The upstream `quip-miner` repository is now `quip-solver`. The stack pulls the
