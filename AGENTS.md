@@ -29,7 +29,7 @@ If you're an AI agent working on this repo, read this file first. It's the cross
 | Dashboard image | Runs Caddy (routes `/rpc` → `quip-validator:9944`, `/api/faucet/*` → `quip-faucet:8087`, `/api/v1/*` → `quip-miner:8086`, `/files/*` and `/` → dashboard), syslog-ng on 5514/udp, and the Turso index. Its Caddyfile is `deploy/Caddyfile` in dashboard.quip.network. |
 | `config/quip-miner.toml` | Miner first-run config template, mounted over the image's `/app/config.toml` in the `cpu`/`cuda` services. Mirrors upstream `docker/config.toml` with `faucet_url` set to the Aglais faucet; the upstream template still names the retired faucet. Drop the mount when upstream catches up. |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs (colocated dev faucet). `make localdev` copies the profile's variant to `data/config.toml` before bringing the stack up. |
-| `chain-specs/aglais-network.json` | Aglais chain spec. Mirrored from the `v0.3.0-rc1` `quip-validator` image via `export-chain-spec --chain quip-testnet --raw` (the upstream preset name is unchanged). Re-export when upstream genesis changes. |
+| `chain-specs/aglais-network.json` | Aglais chain spec. Mirrored from the `v0.4.0` `quip-validator` image via `export-chain-spec --chain quip-testnet --raw` (the upstream preset name is unchanged). Re-export when upstream genesis changes. |
 | `chain-specs/aglais-network.json.sha256` | SHA-256 checksum sidecar — always update alongside the spec. |
 | `data/config.toml` | Canonical v0.2 `[miner]` template (gitignored copy lives at operator's `data/config.toml`). |
 | `data/config.cpu.toml`, `data/config.cuda.toml` | Mode-specific templates operators `cp` to `data/config.toml` on first run. |
@@ -85,18 +85,18 @@ The `cuda` service is wired for [NVIDIA MPS](https://docs.nvidia.com/deploy/mps/
 
 ### Chain spec drift
 
-`chain-specs/aglais-network.json` mirrors the `v0.3.0-rc1` `quip-validator` image's baked-in `quip-testnet` preset. Aglais is the Quip test network (like Sepolia for Ethereum). It started 2026-09-02 from a fresh genesis (`0x59e0…c286`, runtime 117) and keeps the chain id `quip_testnet`. If `shasum -a 256 -c chain-specs/aglais-network.json.sha256` fails after an upstream image bump, re-export:
+`chain-specs/aglais-network.json` mirrors the `v0.4.0` `quip-validator` image's baked-in `quip-testnet` preset. Aglais is the Quip test network (like Sepolia for Ethereum). Its genesis is `0x542a…ebecb` (runtime spec 119), and every Aglais genesis keeps the chain id `quip_testnet`. If `shasum -a 256 -c chain-specs/aglais-network.json.sha256` fails after an upstream image bump, re-export:
 
 ```bash
 docker run --rm --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.3.0-rc1 \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.4.0 \
   export-chain-spec --chain quip-testnet --raw > chain-specs/aglais-network.json
 (cd chain-specs && shasum -a 256 aglais-network.json > aglais-network.json.sha256)
 ```
 
 `--entrypoint` is required: the image entrypoint prints `entrypoint: exec as uid=…` to stdout before the JSON, which corrupts a plain redirect.
 
-The validator base path is `data/aglais-chain-db`, not `data/validator-data`. Because the chain id did not change with the relaunch, the old directory holds a `chains/quip_testnet` database from the retired genesis. Mounting it would fail on genesis mismatch.
+The validator base path is `data/aglais-119-chain-db`, one directory per genesis. Because the chain id never changes, an older base path (`data/aglais-chain-db`, `data/validator-data`) holds a `chains/quip_testnet` database from a retired genesis. Mounting it would fail on genesis mismatch. The dashboard's `dashboard-data-119` is per genesis for the same reason: its index binds to the first genesis it sees.
 
 A stale chain spec presents as: validator's libp2p connects fine, but `system_health.peers=0` because the substream-level handshake rejects on genesis-hash mismatch. Real symptom is silent — debug logs (`-l sub-libp2p=debug,litep2p=debug`) show `failed to negotiate substream ... block-announces`.
 
@@ -118,7 +118,7 @@ make testnet     →  (PROFILE=cuda: start host MPS daemon) docker compose --pro
 make localdev    →  docker compose -p quip-localdev -f docker-compose.yml -f docker-compose.localdev.yml --profile cpu up -d   (dev chain, own namespace)
 make updateconfig → python3 scripts/upgrade-config.py data                          (v0.1 → v0.2)
 make down        →  tear down BOTH projects (testnet default + quip-localdev)
-make clean       →  down + wipe chain + drop aglais-pgdata + quip-localdev-pgdata volumes + wipe dashboard-data   (destructive)
+make clean       →  down + wipe chain + drop aglais-pgdata + quip-localdev-pgdata volumes + wipe dashboard-data-119 + dashboard-data-localdev   (destructive)
 ```
 
 The flow on a clean `make testnet` boot:

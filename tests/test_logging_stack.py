@@ -187,7 +187,7 @@ def test_dashboard_keeps_certificates_and_the_merged_log_path():
     assert re.search(r"source: caddy-data\n\s*target: /data/caddy/data", block)
     assert re.search(r"source: caddy-config\n\s*target: /data/caddy/config", block)
     assert re.search(r"source: \S+/data/logs\n\s*target: /logs\n", block)
-    assert re.search(r"source: \S+/dashboard-data\n\s*target: /data\n", block)
+    assert re.search(r"source: \S+/dashboard-data-119\n\s*target: /data\n", block)
 
 
 def test_localdev_dashboard_gets_its_own_logs_and_data_paths():

@@ -188,12 +188,9 @@ services:
   # Inbound 30333/tcp and 30333/udp must be reachable from the public internet
   # for libp2p peering.
   quip-validator:
-    # On CHANNEL like every other image. quip-network-node:stable now names
-    # the v0.3 Aglais line, so CHANNEL=stable no longer resolves to the
-    # retired v0.2.2 build (runtime spec 116) that cannot run the runtime 117
-    # genesis. This repo published an explicit pin here while that upstream
-    # tag lagged. `latest` is still pre-Aglais and is not a release pointer:
-    # do not name it. QUIP_VALIDATOR_TAG overrides CHANNEL.
+    # On CHANNEL like every other image; both channels run Aglais.
+    # QUIP_VALIDATOR_TAG overrides CHANNEL. This stack does not use `latest`
+    # as a release pointer: do not name it.
     image: registry.gitlab.com/quip.network/quip-validator/quip-network-node:${QUIP_VALIDATOR_TAG:-${CHANNEL:-beta}}
     pull_policy: always
     container_name: quip-validator
@@ -204,11 +201,11 @@ services:
     environment: *runtime-user
     logging: *default-logging
     volumes:
-      # Validator base path (db, keystore, libp2p key). Aglais keeps the
-      # chain id `quip_testnet`, so its db lands in the same chains/quip_testnet
-      # subdir the retired testnet used. A fresh directory keeps the two apart;
-      # the old one stays at ./data/validator-data until the operator deletes it.
-      - ./data/aglais-chain-db:/data
+      # Validator base path (db, keystore, libp2p key), one per genesis. The
+      # chain id stays `quip_testnet` across relaunches, so a reused directory
+      # would hand the old chain's db to the new spec. Older directories are
+      # left in place for the operator to delete.
+      - ./data/aglais-119-chain-db:/data
       # Chain spec selector. Defaults to the Aglais spec (the Quip test
       # network). Override in .env to join a private network with its own
       # spec. Local development uses `make localdev` (--chain=dev) instead.
@@ -347,8 +344,9 @@ services:
         max-size: 8m
         max-file: "2"
     volumes:
-      # Index database, /files data, and collector state.
-      - ./dashboard-data:/data
+      # Index database, /files data, and collector state. One directory per
+      # genesis, because the index binds to the first genesis it sees.
+      - ./dashboard-data-119:/data
       # The image sets XDG_DATA_HOME=/data/caddy/data and
       # XDG_CONFIG_HOME=/data/caddy/config, so these volumes keep the
       # certificates the standalone caddy container provisioned.
