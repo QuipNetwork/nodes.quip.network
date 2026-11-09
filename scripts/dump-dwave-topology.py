@@ -6,7 +6,7 @@ months ago drifts from the hardware, and every drifted qubit becomes a defect
 the miner has to route around.
 
 This reads the graph from the miner's own sampler
-(`quip_miner_dwave.ocean.OceanSampler`), so it sees exactly what the miner
+(`quip_solver_dwave.ocean.OceanSampler`), so it sees exactly what the miner
 sees, including the same credential resolution. It only reads solver
 properties. It submits no problem and spends no QPU access time.
 
@@ -56,7 +56,7 @@ def main() -> int:
     def milli(text):
         return sorted({int(part) for part in text.split(",") if part.strip()})
 
-    from quip_miner_dwave.ocean import OceanSampler
+    from quip_solver_dwave.ocean import OceanSampler
 
     sampler = OceanSampler(
         solver_name=os.environ.get("DWAVE_API_SOLVER") or None,
