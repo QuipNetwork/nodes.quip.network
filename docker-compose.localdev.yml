@@ -30,7 +30,9 @@
 #      (Don't use `local` — that's Alice+Bob+Charlie and GRANDPA stalls
 #      with only one voter online.)
 #   2. quip-faucet runs //Alice as the funder (pre-funded at genesis).
-#   3. Seed advantage2_system1 + Difficulty via //Alice sudo (one-shot):
+#   3. Seed the dimer1200 family topology on the zephyr-z12t4-live graph,
+#      with its difficulty and energy band, through a //Alice Foundation
+#      motion (one-shot; //Alice is the sole Foundation member on `dev`):
 #        docker compose -f docker-compose.yml -f docker-compose.localdev.yml \
 #          --profile cpu run --rm \
 #          --entrypoint quip-coordinator cpu seed-chain \
@@ -61,6 +63,11 @@ services:
       - --prometheus-external
       - --no-mdns
       - --unsafe-force-node-key-generation
+    # A dev chain is healthy within seconds of boot, so poll at 5 s instead
+    # of the base file's 30 s. `make localdev` waits on this check before it
+    # seeds the topology. The other healthcheck keys merge from the base file.
+    healthcheck:
+      interval: 5s
 
   # The dev-faucet flip lives in config, not env: `make localdev` copies
   # config/localdev.<profile>.toml to data/config.toml (faucet_url =

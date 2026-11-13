@@ -21,6 +21,9 @@ public_port = 20049
 listen = "0.0.0.0:8086"
 data_dir = "/data/attempts"
 
-# Bundled binary defaults to quip-cpu-sa.
+# `make localdev` seeds the dimer1200 family topology (quip/twisted-ice-dimer
+# revision 1). quip-cpu-otsuka runs the Otsuka cluster kernel on it, which
+# reaches much lower energies than plain SA at equal sweeps.
 [cpu]
+binary = "quip-cpu-otsuka"
 num_cpus = 1

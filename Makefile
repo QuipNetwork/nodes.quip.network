@@ -9,6 +9,8 @@
 PROFILE          ?= cpu
 SUDO_KEY         ?= //Alice
 DATA             ?= data
+# Seconds localdev-check waits for the first qblock.
+QBLOCK_TIMEOUT   ?= 600
 # Host pipe directory for the NVIDIA MPS control daemon (PROFILE=cuda only).
 # Matches the path the cuda service bind-mounts in docker-compose.yml.
 MPS_PIPE_DIR     := /tmp/nvidia-mps
@@ -33,7 +35,7 @@ COMPOSE_TAGGED   := $(COMPOSE_LOCALDEV) --env-file .env --env-file $(TAGS_ENV)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help testnet localdev pull down logs clean clean-chain require-env require-mps updateconfig updateconfig-docker show-channel
+.PHONY: help testnet localdev localdev-check pull down logs clean clean-chain require-env require-mps updateconfig updateconfig-docker show-channel
 
 help:
 	@echo "nodes.quip.network — operator targets"
@@ -43,6 +45,8 @@ help:
 	@echo "  make localdev          Wipe chain, bring up self-contained dev stack"
 	@echo "                         (validator on --chain=dev, faucet, seeded topology,"
 	@echo "                          registered miner, dashboard)"
+	@echo "  make localdev-check    Wait for the dev chain's first qblock (fails after"
+	@echo "                         QBLOCK_TIMEOUT=$(QBLOCK_TIMEOUT) s); localdev runs it last"
 	@echo "  make updateconfig      Convert a v0.1 data/config.toml to the v0.2 [miner]"
 	@echo "                         schema (backs up originals to data/.v0.1_backup/)."
 	@echo "                         Override the dir with DATA=/path/to/data."
@@ -96,6 +100,12 @@ ifeq ($(PROFILE),cuda)
 	fi
 endif
 
+# Fails unless the dev chain mines a qblock within QBLOCK_TIMEOUT seconds:
+# the end-to-end check that seeding, faucet funding, miner registration and a
+# family proof all worked. Reads QuantumPow.QBlockCount through Caddy's /rpc.
+localdev-check:
+	python3 scripts/wait-qblock.py http://localhost:20049/rpc $(QBLOCK_TIMEOUT)
+
 # Live Quip Testnet. Plain `docker compose` is testnet now (the localdev
 # override is opt-in via -f docker-compose.localdev.yml, not auto-loaded).
 # PROFILE=cuda also starts the host MPS daemon first (require-mps).
@@ -131,8 +141,10 @@ localdev: require-env down clean-chain
 	# dashboard first-class here: it holds the collector, and nothing else
 	# waits for it, so starting it late would drop the validator's first lines.
 	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d --remove-orphans dashboard quip-validator quip-faucet
-	@echo "waiting for validator to produce blocks..."
-	@sleep 12
+	# Wait for the validator's healthcheck (RPC up, not syncing) instead of
+	# guessing a delay. seed-chain then waits for its motion's inclusion and
+	# checks DefaultTopology itself, so a failed seed stops make here.
+	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d --wait --wait-timeout 300 quip-validator
 	$(COMPOSE_TAGGED) --profile $(PROFILE) run --rm \
 	    --entrypoint quip-coordinator $(PROFILE) seed-chain \
 	    --validator ws://quip-validator:9944 --sudo-key $(SUDO_KEY)
@@ -140,6 +152,8 @@ localdev: require-env down clean-chain
 	# Topology must already be seeded above, otherwise the miner's
 	# self-bootstrap fails inside its retry loop.
 	$(COMPOSE_TAGGED) --profile $(PROFILE) up -d --remove-orphans
+	@echo "waiting for the first qblock (funding, registration, a family proof)..."
+	$(MAKE) --no-print-directory localdev-check
 	@echo ""
 	@echo "localdev stack up. tail logs: tail -F data/logs-localdev/quip-node.log"
 	@echo ""
