@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.0
 
 ### Aglais relaunch on runtime spec 120
 
@@ -16,6 +16,23 @@ bootnodes, and faucet are unchanged.
   not reused.
 - Mining is seeded by a council motion with the dimer1200 family topology,
   start energy -4900 (`-4900000` milli).
+
+### Localdev mines the dimer1200 family topology
+
+`make localdev` runs a runtime-120 dev chain. `quip-coordinator seed-chain`
+(quip-solver 0.3.8-rc9 or later) registers the dimer1200 family topology
+(`quip/twisted-ice-dimer` revision 1) on the 4,575-node live graph and makes
+it the default, through a Foundation motion from `//Alice`.
+
+- `config/localdev.cpu.toml` selects `quip-cpu-otsuka`, and
+  `config/localdev.cuda.toml` selects `quip-cuda-otsuka`. The CUDA binary
+  ships in the miner image from quip-solver 0.3.8-rc10.
+- `make localdev` waits for the validator healthcheck, polled every 5 s on
+  the dev chain, before it seeds. It no longer sleeps a fixed 12 s.
+- `make localdev` ends with the new `make localdev-check`. It fails unless
+  the chain mines a qblock within `QBLOCK_TIMEOUT` seconds (default 600).
+
+## v0.4.0
 
 ### Aglais relaunch on runtime spec 119
 
