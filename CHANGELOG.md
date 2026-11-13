@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Aglais relaunch on runtime spec 120
+
+Aglais restarted from a fresh genesis, `0xc714…0e54`, on runtime spec 120
+(validator v0.5.0-rc2, transaction version 7). The chain name, chain id,
+bootnodes, and faucet are unchanged.
+
+- `chain-specs/aglais-network.json` is built from the `runtime-testnet` Wasm
+  (600-slot epochs) with the `quip_testnet` preset. The council and the
+  validators are the three bootnode operators.
+- The validator base path is `data/aglais-120-chain-db` and the dashboard
+  data directory is `dashboard-data-120`, so the old database and index are
+  not reused.
+- Mining is seeded by a council motion with the dimer1200 family topology,
+  start energy -4900 (`-4900000` milli).
+
 ### Aglais relaunch on runtime spec 119
 
 Aglais restarted from a fresh genesis, `0x542a…ebecb`, on runtime spec 119
