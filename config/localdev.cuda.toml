@@ -22,5 +22,8 @@ public_port = 20049
 listen = "0.0.0.0:8086"
 data_dir = "/data/attempts"
 
-# Bundled binary defaults to quip-cuda-sa.
+# `make localdev` seeds the dimer1200 family topology (quip/twisted-ice-dimer
+# revision 1). quip-cuda-otsuka runs the Otsuka cluster kernel on it and
+# production CUDA SA on any other job.
 [cuda.0]
+binary = "quip-cuda-otsuka"
