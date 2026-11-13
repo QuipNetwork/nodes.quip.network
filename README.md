@@ -1,6 +1,6 @@
 # Quip Network Node - Docker Deployment
 
-> **Aglais relaunch (spec 119).** Aglais restarted from a fresh genesis on runtime spec 119. This repo joins the new chain by default. Existing operators: see [Aglais relaunch (spec 119)](#aglais-relaunch-spec-119).
+> **Aglais relaunch (spec 120).** Aglais restarted from a fresh genesis on runtime spec 120. This repo joins the new chain by default. Existing operators: see [Aglais relaunch (spec 120)](#aglais-relaunch-spec-120).
 
 > **Upgrading from v0.1?** See [Upgrading from v0.1](#upgrading-from-v01) below — the miner config schema changed, container/image names changed, and the substrate validator now owns p2p. There's a one-time `make updateconfig` step plus a few docker compose differences worth scanning before you bring things up.
 
@@ -20,7 +20,7 @@ Internet
   └─ 30333/tcp+udp → quip-validator (substrate libp2p, bundled into every profile)
 ```
 
-The stack runs three images: the validator, the miner, and the dashboard. The dashboard container runs Caddy, the syslog-ng log collector, and the dashboard backend under one supervisor. It stores its index in an embedded Turso database at `dashboard-data-119/dashboard.db`.
+The stack runs three images: the validator, the miner, and the dashboard. The dashboard container runs Caddy, the syslog-ng log collector, and the dashboard backend under one supervisor. It stores its index in an embedded Turso database at `dashboard-data-120/dashboard.db`.
 
 Caddy is the single front door for HTTP/WS traffic; libp2p binds `:30333` directly on the validator container. The miner runs purely as an outbound substrate RPC client (no inbound QUIC, no inbound REST) and is reachable only over the compose network. Substrate RPC is at `/rpc`, faucet at `/api/faucet/*`, miner telemetry at `/api/v1/*`, dashboard SPA at `/`. All four are served on **both** `:443` and `:20049` in TLS mode, or on `:20049` HTTP-only in dev mode. `:80` is used for ACME HTTP-01 challenges and auto-redirects to `:443`.
 
@@ -37,12 +37,12 @@ curl -sS https://check.quip.network/checkport?port=443   # only if using HTTPS
 
 Each returns `{"reachable": true, …}` or `{"reachable": false, "error": "…"}`.
 
-## Aglais relaunch (spec 119)
+## Aglais relaunch (spec 120)
 
-Aglais restarted from a fresh genesis, `0x542a9915acf840b8940d35ca6de242f669a0c6e3b40f9a8d8c14b9bf7b8ebecb`, on runtime spec 119 (validator v0.4.0). The chain name, chain id, bootnodes, and faucet stay the same. What changes on the host:
+Aglais restarted from a fresh genesis, `0xc7145a3f75f272fd19d27cf4466567f6fd893b87098d6b604078d467590b0e54`, on runtime spec 120 (validator v0.5.0-rc2). The chain name, chain id, bootnodes, and faucet stay the same. What changes on the host:
 
-- The validator base path is `data/aglais-119-chain-db`. The chain id is still `quip_testnet`, so the new spec would open the old database and reject it on genesis mismatch.
-- The dashboard data directory is `dashboard-data-119`. Its index binds to the first genesis it sees, so the old one cannot serve the new chain.
+- The validator base path is `data/aglais-120-chain-db`. The chain id is still `quip_testnet`, so the new spec would open the old database and reject it on genesis mismatch.
+- The dashboard data directory is `dashboard-data-120`. Its index binds to the first genesis it sees, so the old one cannot serve the new chain.
 - The miner funds and registers its account again on the new chain, through the faucet, on its first start. This needs no action while `faucet_url` in `data/config.toml` names `https://faucet.aglais.quip.network`.
 - Session keys live in the keystore under the base path, so a validator that holds them inserts them again. Bootnode operators also copy `node-key` into the new base path. See [docs/testnet-deployment.md](docs/testnet-deployment.md).
 
@@ -64,11 +64,11 @@ Aglais is the Quip test network, in the way Sepolia is the Ethereum test network
 
 What changed on the host:
 
-- `chain-specs/aglais-network.json` replaces `chain-specs/quip-testnet.json`. Genesis is `0x542a9915acf840b8940d35ca6de242f669a0c6e3b40f9a8d8c14b9bf7b8ebecb`. Bootnodes are `bootnode-{1,2,3}.aglais.quip.network`.
-- The validator base path moved from `data/validator-data` to `data/aglais-119-chain-db`. Aglais keeps the chain id `quip_testnet`, so the new spec would open the old database and reject it on genesis mismatch. A fresh directory keeps the two apart.
+- `chain-specs/aglais-network.json` replaces `chain-specs/quip-testnet.json`. Genesis is `0xc7145a3f75f272fd19d27cf4466567f6fd893b87098d6b604078d467590b0e54`. Bootnodes are `bootnode-{1,2,3}.aglais.quip.network`.
+- The validator base path moved from `data/validator-data` to `data/aglais-120-chain-db`. Aglais keeps the chain id `quip_testnet`, so the new spec would open the old database and reject it on genesis mismatch. A fresh directory keeps the two apart.
 - Both image channels, `stable` and `beta`, run Aglais. Run `make show-channel` to see the exact tag.
 - The faucet is `https://faucet.aglais.quip.network`. The miner funds and registers itself again on the new chain, so `faucet_url` in `data/config.toml` must point at the Aglais faucet. Fresh installs get it from `config/quip-miner.toml`, which compose mounts over the miner image's first-run template.
-- The dashboard keeps its index in `dashboard-data-119`, a new directory, so it starts clean on Aglais.
+- The dashboard keeps its index in `dashboard-data-120`, a new directory, so it starts clean on Aglais.
 
 Steps:
 
@@ -79,7 +79,7 @@ docker compose --profile cpu down    # or cuda
 docker compose --profile cpu up -d   # or: make testnet PROFILE=cpu
 ```
 
-`up -d` creates `data/aglais-119-chain-db` and syncs Aglais from genesis. The first start waits for that sync, see [Initial sync](#initial-sync).
+`up -d` creates `data/aglais-120-chain-db` and syncs Aglais from genesis. The first start waits for that sync, see [Initial sync](#initial-sync).
 
 The miner keystore at `data/keystore.json` still loads, but the miner image the `BETA` channel selects signs with the H4 suite and derives a different on-chain account from the same seed. The miner funds and registers that new account itself on first start against Aglais, through `faucet_url`. The `ss58` field inside `keystore.json` is stale metadata from the H3 era and is no longer the account the miner uses. Read the live account from the dashboard or from `QuantumPow.Miners`, not from the file.
 
@@ -104,7 +104,7 @@ docker compose --profile cpu up -d --remove-orphans
 
 `make testnet` and `cron.sh` pass `--remove-orphans` for you. Watchtower does not add or remove services, so a node that only Watchtower updates needs this command once.
 
-The dashboard rebuilds its index from genesis into `dashboard-data-119/dashboard.db`. Existing TLS certificates carry over. When the new dashboard is up, delete the old Postgres volume:
+The dashboard rebuilds its index from genesis into `dashboard-data-120/dashboard.db`. Existing TLS certificates carry over. When the new dashboard is up, delete the old Postgres volume:
 
 ```bash
 docker volume rm aglais-pgdata
@@ -123,7 +123,7 @@ docker stop quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 
 docker rm   quip-cpu quip-cuda quip-qpu quip-dashboard quip-postgres quip-caddy 2>/dev/null || true
 ```
 
-Your data is in bind mounts (`./data/`, `./dashboard-data-119/`) and volumes (`quip-caddy-data`, `quip-caddy-config`, plus `aglais-pgdata` if you have not yet deleted the pre-embedded dashboard's Postgres volume), so removing containers is non-destructive.
+Your data is in bind mounts (`./data/`, `./dashboard-data-120/`) and volumes (`quip-caddy-data`, `quip-caddy-config`, plus `aglais-pgdata` if you have not yet deleted the pre-embedded dashboard's Postgres volume), so removing containers is non-destructive.
 
 ### 2. Pull the v0.2 repo
 
@@ -328,7 +328,7 @@ docker compose --profile cuda up -d
 The first testnet start waits for the validator to sync. `up -d` holds until the
 validator reaches the chain head. On a fresh install this takes hours, because the
 stack runs an archive node and replays every block from genesis. Later starts return
-at once, because the node keeps its database in `data/aglais-119-chain-db`.
+at once, because the node keeps its database in `data/aglais-120-chain-db`.
 
 The miner waits on purpose. It reads the chain through the validator and
 gives wrong answers against a node that is still catching up: the
@@ -354,7 +354,7 @@ A syncing node reports its target block and its peer count:
 
 A node that stays at block 0 with 0 peers is on the wrong genesis. Check that
 `--chain` points at `chain-specs/aglais-network.json`, whose genesis is
-`0x542a…ebecb`, and that `data/aglais-119-chain-db` does not hold a database
+`0xc714…0e54`, and that `data/aglais-120-chain-db` does not hold a database
 from another chain. Pass the file, not a preset name.
 
 #### Local dev chain
@@ -393,7 +393,7 @@ For miner-only nodes (no colocated validator), point the indexer at a public ful
 QUIP_VALIDATOR_RPC_URLS=wss://cpu-1.nodes.quip.network/rpc
 ```
 
-The index persists in `dashboard-data-119/dashboard.db`, so it survives container recreations. While the validator is still syncing, the indexer waits and does not index a partial chain.
+The index persists in `dashboard-data-120/dashboard.db`, so it survives container recreations. While the validator is still syncing, the indexer waits and does not index a partial chain.
 
 ### Validator setup
 
@@ -413,7 +413,7 @@ The validator boots against `chain-specs/aglais-network.json` by default (see [A
 docker compose --profile cpu up -d
 
 # 3. Rotate session keys — substrate generates and stores them under the
-#    keystore in ./data/aglais-119-chain-db/chains/<id>/keystore/. The returned
+#    keystore in ./data/aglais-120-chain-db/chains/<id>/keystore/. The returned
 #    hex pubkey gets bound to your validator account via session.setKeys.
 curl -fsSL -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","id":1,"method":"author_rotateKeys","params":[]}' \
@@ -427,7 +427,7 @@ Notes:
 - `--rpc-methods=safe` blocks `author_rotateKeys` from external callers as a hardening default. Run step 3 from inside the docker network (e.g. `docker compose exec quip-validator …` with the substrate node's curl) if your remote `/rpc` blocks the call.
 - Running **two validators on one host** is not supported — the upstream litep2p transport's wildcard binding causes a port collision when multiple validators share a docker bridge. Use separate hosts or separate docker networks.
 - **The validator database grows without bound, and that's the supported configuration.** It runs with `--state-pruning=archive --blocks-pruning=archive`, keeping every state trie and block body from genesis. Size the disk for that. You can reclaim disk by overriding both flags in a `docker-compose.override.yml`, but pruning breaks the dashboard: its descriptor worker scans from genesis and fails with `State already discarded` once it reads past the pruning window. A pruned node isn't a recommended configuration and likely reduces your point awards on the SNAG platform. Only prune if you accept losing the dashboard.
-- The validator's libp2p node key is auto-generated at first start (under `data/aglais-119-chain-db/chains/<id>/network/secret_ed25519`). To pin a stable peer id across recreations, generate the key explicitly with `key generate-node-key --file /data/node-key` and add `--node-key-file=/data/node-key` to the validator command. Canonical bootnode operator setup is documented in [`docs/testnet-deployment.md`](docs/testnet-deployment.md).
+- The validator's libp2p node key is auto-generated at first start (under `data/aglais-120-chain-db/chains/<id>/network/secret_ed25519`). To pin a stable peer id across recreations, generate the key explicitly with `key generate-node-key --file /data/node-key` and add `--node-key-file=/data/node-key` to the validator command. Canonical bootnode operator setup is documented in [`docs/testnet-deployment.md`](docs/testnet-deployment.md).
 
 ### Aglais (the Quip test network)
 
@@ -438,7 +438,7 @@ The compose stack joins **Aglais** by default. Aglais is the Quip test network, 
 | Chain name | `AGLS (Quip Testnet)` |
 | Chain id | `quip_testnet` |
 | Chain type | `Live` |
-| Genesis | `0x542a9915acf840b8940d35ca6de242f669a0c6e3b40f9a8d8c14b9bf7b8ebecb` |
+| Genesis | `0xc7145a3f75f272fd19d27cf4466567f6fd893b87098d6b604078d467590b0e54` |
 | Runtime | spec `119`, transaction version `7` |
 | Token | `AGLS` (12 decimals, ss58Format=42) |
 | Protocol id | `agls-network` |
@@ -459,34 +459,20 @@ The spec ships with a SHA-256 checksum:
 # aglais-network.json: OK
 ```
 
-To verify provenance against the published validator image:
+The spec is built from the `v0.5.0-rc2` release of `quip-validator`: the `runtime-testnet` Wasm (600-slot epochs) with the `quip_testnet` genesis preset, whose council and validators are the three bootnode operators. The chain name, id, protocol id, bootnodes and properties are the previous Aglais spec's.
+
+The validator image does not embed `runtime-testnet`, and from `v0.5.0` its built-in `quip-testnet` alias loads the retired spec-119 file. So `export-chain-spec --chain quip-testnet` does not reproduce this spec, and a node must not be started with `--chain quip-testnet`. Compose always passes this file.
+
+To check it, boot it offline and read the genesis:
 
 ```bash
-docker run --rm --platform linux/amd64 --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.4.0 \
-  export-chain-spec --chain quip-testnet --raw > /tmp/from-image.json
-shasum -a 256 /tmp/from-image.json chain-specs/aglais-network.json
-# Both hashes should match exactly.
+docker run --rm --network none --platform linux/amd64 -v "$PWD/chain-specs:/spec:ro" \
+  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.5.0-rc2 \
+  --chain=/spec/aglais-network.json --tmp --rpc-port 9944 --rpc-external &
+# then: chain_getBlockHash(0) == 0xc7145a3f75f272fd19d27cf4466567f6fd893b87098d6b604078d467590b0e54
 ```
 
-`--entrypoint` bypasses the image entrypoint, which prints a line to stdout before the JSON. Use the amd64 image: the v0.4.0 arm64 build embeds a slightly different runtime blob, so its export does not match. arm64 nodes are unaffected while they boot from `chain-specs/aglais-network.json`, as compose does; don't start one with `--chain quip-testnet`.
-
-#### Mirroring procedure
-
-The chain spec is mirrored from `quip-validator`: `node/src/chain_spec.rs::quip_testnet_chain_spec` plus the runtime preset under `runtime/src/genesis_quip_testnet/`. The upstream preset name stays `quip-testnet`. To regenerate after an upstream preset change:
-
-```bash
-# Pull the tagged image
-docker pull registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.4.0
-
-# Re-export and update the checksum sidecar
-docker run --rm --platform linux/amd64 --entrypoint /usr/local/bin/quip-network-node \
-  registry.gitlab.com/quip.network/quip-validator/quip-network-node:v0.4.0 \
-  export-chain-spec --chain quip-testnet --raw > chain-specs/aglais-network.json
-(cd chain-specs && shasum -a 256 aglais-network.json > aglais-network.json.sha256)
-```
-
-Do not hand-edit `chain-specs/aglais-network.json`. Any change must come from re-exporting after an upstream preset commit.
+Do not hand-edit `chain-specs/aglais-network.json`.
 
 #### Authorities
 
@@ -494,30 +480,13 @@ Genesis authorities, sudo, and the full set-keys procedure live in [`quip-valida
 
 #### Seeding the mining topology
 
-A chain accepts no proof until root registers a topology and marks it mineable. The sudo holder does this once per chain. Operators never run it. On a fresh chain the first topology registered becomes the default and is mineable at once.
+A chain accepts no proof until Root registers a topology and makes it the default. Runtime 120 has no Sudo: Root is a 2-of-3 council motion around `ValidatorAdmission.dispatch_as_root`, so two of the three bootnode operators sign it. Operators never run it.
 
-Aglais mines `0xcbec1eb4e9dcc7ae343b386902d4dbba19b694a66cebf95bc06bd9260c3270e7`: the D-Wave Advantage2 system1 working graph, 4577 nodes and 41514 edges, with `allowed_h = [0]`. It has one edge fewer than the full graph because D-Wave calibrated coupler (938, 2812) out of the hardware. The matching spec is committed at `config/advantage2-system1-h0.spec.json`.
+Aglais mines the dimer1200 family topology: `quip/twisted-ice-dimer` revision 1, solver-core recipe `x-w62-p1200`, on the live Advantage2 graph `zephyr-z12t4-live` (4575 nodes, 41474 edges). Its topology hash is `0x909cfee75bab5cb9de3ee73b763f3b974720da51a2db3b5073d94e0d85526971`.
 
-That `allowed_h = [0]` is what makes it the h0 topology, and it is why `seed-chain` cannot be run with its defaults here. The built-in `advantage2-system1` preset carries all 41515 edges and `allowed_h = [-1000, 0, 1000]`, and hashes to `0xfb91…7ec4`, a different topology.
+The motion carries one `utility.batch_all` with the five calls `quip-coordinator seed-chain` (v0.3.8-rc9) builds: register the topology, set the difficulty (`min_solutions` 1, start energy `-4900000` milli, diversity 0), set the energy band (`-5100000` to `-4800000`), add it to the mineable set, and make it the default. `seed-chain` itself proposes with threshold 1, which only passes on a one-member council such as `--chain=dev`.
 
-```bash
-docker compose --profile cpu run --rm \
-  -v "$PWD/config/advantage2-system1-h0.spec.json:/topology.json:ro" \
-  -v /path/to/sudo-mnemonic:/sudo-mnemonic:ro \
-  --entrypoint quip-coordinator cpu seed-chain \
-    --validator ws://quip-validator:9944 \
-    --mnemonic-file /sudo-mnemonic \
-    --topology /topology.json \
-    --min-solutions 1 \
-    --max-energy-milli=-14700000 \
-    --min-diversity-milli 0
-```
-
-`seed-chain` sends `register_topology` and `set_difficulty` as two transactions. In between, the new topology is already mineable at the pallet default (5 solutions, -1,200,000, diversity 200), which is far easier than the start energy. On a live network, send both calls in one sudo `utility.batchAll` instead.
-
-The start energy is -14700, which is `-14700000` in milli units. Keep the `=` form: some coordinator builds parse a bare negative number as a flag. With `--min-solutions 1` the pallet requires `--min-diversity-milli 0`. These values are not the `seed-chain` defaults, which are 5, -2500000 and 200. The threshold does not ease before the first proof lands, so the start value must be one the network's miners can reach. After that, the chain's difficulty controller moves it based on submission rate.
-
-Verify afterwards that `QuantumPow.DefaultTopology` reads back `0xcbec…70e7`. A miner against an unseeded chain logs `feeder: chain has no mining snapshot (no registered/mineable topology); staging nothing` and stages no work.
+Verify afterwards that `QuantumPow.DefaultTopology` reads back `0x909c…6971`. A miner against an unseeded chain logs `feeder: chain has no mining snapshot (no registered/mineable topology); staging nothing` and stages no work.
 
 #### Local development and private networks
 
@@ -634,7 +603,7 @@ Changing `QUIP_LOG_MAX_BYTES` or `QUIP_LOG_KEEP` requires a container recreate, 
 | `data/config.cuda.toml` | CUDA GPU mode template |
 | `chain-specs/aglais-network.json` | Aglais (Quip test network) chain spec (committed; mirrored from quip-validator) |
 | `chain-specs/aglais-network.json.sha256` | SHA-256 checksum for the Aglais spec |
-| `data/aglais-119-chain-db/` | Validator base path (keystore, db, libp2p key; gitignored) |
+| `data/aglais-120-chain-db/` | Validator base path (keystore, db, libp2p key; gitignored) |
 | `docs/testnet-deployment.md` | Operator host setup for canonical testnet bootnode validators |
 | `scripts/sysctl-tune.sh` | Host kernel tuning (BBR + fq + no slow-start-after-idle) |
 | `scripts/validator-healthcheck.sh` | Validator sync gate, mounted into the validator container as its healthcheck |
@@ -643,6 +612,6 @@ Changing `QUIP_LOG_MAX_BYTES` or `QUIP_LOG_KEEP` requires a container recreate, 
 | `config/quip-miner.toml` | Miner first-run config template (Aglais faucet_url), mounted over the image's `/app/config.toml` |
 | `config/advantage2-system1-h0.spec.json` | Topology spec the network mines against (`0xcbec…70e7`). Input to `seed-chain`, not read at runtime |
 | `config/localdev.{cpu,cuda}.toml` | Localdev miner configs; `make localdev` copies the profile's variant to `data/config.toml` |
-| `dashboard-data-119/` | Dashboard index database (`dashboard.db`), `/files` data, and collector state (bind mount, gitignored) |
+| `dashboard-data-120/` | Dashboard index database (`dashboard.db`), `/files` data, and collector state (bind mount, gitignored) |
 | `quip-caddy-data` | Docker named volume for Caddy's certs + state, mounted into the dashboard container |
 | `quip-caddy-config` | Docker named volume for Caddy's autosaved config, mounted into the dashboard container |
