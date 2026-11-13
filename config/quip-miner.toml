@@ -90,7 +90,7 @@ public_port = 20050
 
 # CPU miner (bundled: quip-cpu-sa, quip-cpu-gibbs).
 [cpu]
-binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
+binary = "quip-cpu-otsuka"   # Aglais mines dimer1200; quip-cpu-sa and quip-cpu-gibbs refuse its leases
 
 # num_cpus is the whole CPU limiter. Unset means every core the host reports.
 # A value above the host core count is clamped down. Zero or below is fatal:

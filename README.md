@@ -44,6 +44,7 @@ Aglais restarted from a fresh genesis, `0xc7145a3f75f272fd19d27cf4466567f6fd893b
 - The validator base path is `data/aglais-120-chain-db`. The chain id is still `quip_testnet`, so the new spec would open the old database and reject it on genesis mismatch.
 - The dashboard data directory is `dashboard-data-120`. Its index binds to the first genesis it sees, so the old one cannot serve the new chain.
 - The miner funds and registers its account again on the new chain, through the faucet, on its first start. This needs no action while `faucet_url` in `data/config.toml` names `https://faucet.aglais.quip.network`.
+- Aglais mines the dimer1200 family topology, which only `quip-cpu-otsuka` and `quip-cpu-dimer` take. Set `binary = "quip-cpu-otsuka"` under `[cpu]` in `data/config.toml`; a miner left on `quip-cpu-sa` logs `GeneratorUnsupported` and mines nothing.
 - Session keys live in the keystore under the base path, so a validator that holds them inserts them again. Bootnode operators also copy `node-key` into the new base path. See [docs/testnet-deployment.md](docs/testnet-deployment.md).
 
 ```bash

@@ -118,7 +118,7 @@ public_port = 20050
 
 # CPU miner. The cpu image bundles both binaries; `binary` picks the variant.
 [cpu]
-binary = "quip-cpu-sa"   # or "quip-cpu-gibbs"
+binary = "quip-cpu-otsuka"   # Aglais mines dimer1200; quip-cpu-sa and quip-cpu-gibbs refuse its leases
 
 # num_cpus is the CPU limiter, and it is the only one this backend has. See
 # "Limiting CPU use" below.
