@@ -63,6 +63,11 @@ services:
       - --prometheus-external
       - --no-mdns
       - --unsafe-force-node-key-generation
+    # A dev chain is healthy within seconds of boot, so poll at 5 s instead
+    # of the base file's 30 s. `make localdev` waits on this check before it
+    # seeds the topology. The other healthcheck keys merge from the base file.
+    healthcheck:
+      interval: 5s
 
   # The dev-faucet flip lives in config, not env: `make localdev` copies
   # config/localdev.<profile>.toml to data/config.toml (faucet_url =
